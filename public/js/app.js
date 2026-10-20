@@ -6,37 +6,43 @@ const App = {
   customersCache: [],
   suppliersCache: [],
 
-  async init() {
-    // 1. Register Service Worker for Instant Loading & Full Offline Mode
-    if ('serviceWorker' in navigator) {
-      window.addEventListener('load', () => {
-        navigator.serviceWorker.register('sw.js').then((reg) => {
-          console.log('✓ JENGAKWANZA PWA Service Worker active:', reg.scope);
-        }).catch((err) => {
-          console.warn('Service Worker registration skipped:', err);
-        });
-      });
-    }
+  escape(str) {
+    if (str === null || str === undefined) return '';
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  },
 
-    try {
-      // 2. Fetch System Settings (Instant from Cache, background synced)
-      const settingsRes = await API.getSettings();
-      if (settingsRes && settingsRes.settings) {
-        State.setSettings(settingsRes.settings);
-      }
-    } catch (e) {
-      console.warn('Initial settings load warning:', e);
-    }
-
-    this.updateConnectionStatusUI();
-
-    // 3. Check Authentication
+  init() {
+    // 1. Instant zero-latency authentication check & route activation (0ms delay)
     if (!State.currentUser) {
       this.showAuthPage();
     } else {
       this.hideAuthPage();
       this.checkShiftStatus();
       this.renderApp();
+    }
+
+    // 2. Fetch System Settings in background (never blocks UI or app loading)
+    API.getSettings().then(settingsRes => {
+      if (settingsRes && settingsRes.settings) {
+        State.setSettings(settingsRes.settings);
+      }
+    }).catch(e => console.warn('Background settings load note:', e));
+
+    this.updateConnectionStatusUI();
+
+    // 3. Register Service Worker with automatic updates
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('sw.js').then((reg) => {
+        reg.update().catch(() => {});
+        console.log('✓ JENGAKWANZA PWA Service Worker active:', reg.scope);
+      }).catch((err) => {
+        console.warn('Service Worker registration skipped:', err);
+      });
     }
   },
 
@@ -417,7 +423,7 @@ const App = {
     container.innerHTML = `<div style="text-align: center; padding: 40px;"><div class="spinner"></div> Loading Dashboard...</div>`;
     try {
       const res = await API.getDashboardReport();
-      const d = res.dashboard || {};
+      const d = res.dashboard || res || {};
 
       container.innerHTML = `
         <!-- Top Metrics Cards -->
@@ -426,7 +432,7 @@ const App = {
             <div class="metric-data">
               <h4>Available Capital (Liquid)</h4>
               <div class="metric-value" style="color: var(--primary);">${State.formatMoney(d.capital_available)}</div>
-              <div class="metric-sub">Cash: ${State.formatMoney(d.cash_in_hand)} • Bank/Mobile: ${State.formatMoney(d.bank_balance + d.mobile_balance)}</div>
+              <div class="metric-sub">Cash: ${State.formatMoney(d.cash_in_hand)} • Bank/Mobile: ${State.formatMoney((parseFloat(d.bank_balance) || 0) + (parseFloat(d.mobile_balance) || 0))}</div>
             </div>
             <div class="metric-icon teal">
               <svg width="24" height="24" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
@@ -689,7 +695,13 @@ const App = {
     // Fetch products & customers
     try {
       const [pRes, cRes] = await Promise.all([API.getProducts(), API.getCustomers()]);
-      this.productsCache = pRes.products || [];
+      this.productsCache = (pRes.products || []).map((p, idx) => ({
+        ...p,
+        id: String(p.id !== undefined && p.id !== null ? p.id : `prod_${idx}`),
+        selling_price: parseFloat(p.selling_price || 0),
+        cost_price: parseFloat(p.cost_price || 0),
+        stock_quantity: parseFloat(p.stock_quantity || 0)
+      }));
       this.customersCache = cRes.customers || [];
 
       // Populate category filter
@@ -714,20 +726,21 @@ const App = {
       this.filterPOSProducts();
       this.renderCartUI();
     } catch (e) {
-      console.error(e);
+      console.error('POS data fetch error:', e);
     }
   },
 
   filterPOSProducts() {
-    const query = (document.getElementById('pos-search-input')?.value || '').toLowerCase();
+    const query = (document.getElementById('pos-search-input')?.value || '').toLowerCase().trim();
     const category = document.getElementById('pos-category-filter')?.value || '';
     const container = document.getElementById('pos-products-list');
     if (!container) return;
 
-    const filtered = this.productsCache.filter(p => {
-      const matchesQ = (p.name || '').toLowerCase().includes(query) || 
-                       (p.sku && p.sku.toLowerCase().includes(query)) || 
-                       (p.barcode && p.barcode.toLowerCase().includes(query));
+    const filtered = (this.productsCache || []).filter(p => {
+      const name = (p.name || '').toLowerCase();
+      const sku = (p.sku || '').toLowerCase();
+      const barcode = (p.barcode || '').toLowerCase();
+      const matchesQ = !query || name.includes(query) || sku.includes(query) || barcode.includes(query);
       const matchesC = !category || p.category === category;
       return matchesQ && matchesC;
     });
@@ -747,28 +760,36 @@ const App = {
     }
 
     container.innerHTML = filtered.map(p => {
-      const isLow = p.stock_quantity <= p.min_alert_quantity;
-      const isOut = p.stock_quantity <= 0;
+      const stock = parseFloat(p.stock_quantity || 0);
+      const minAlert = parseFloat(p.min_alert_quantity || 5);
+      const isLow = stock <= minAlert;
+      const isOut = stock <= 0;
       const hasImage = Boolean(p.image_url);
+      const safeId = this.escape(String(p.id));
+      const safeName = this.escape(p.name || 'Product');
+      const safeSku = this.escape(p.sku || '');
+      const safeCategory = this.escape(p.category || 'General');
+      const safeUnit = this.escape(p.unit || 'pcs');
+
       return `
-        <div class="pos-product-card" onclick="App.addProductToPOSCart('${p.id}')">
+        <div class="pos-product-card" onclick="App.addProductToPOSCart('${safeId}')">
           <div class="pos-product-thumb-wrap">
             ${hasImage 
-              ? `<img src="${p.image_url}" alt="${this.escape(p.name)}" class="pos-product-img" onerror="this.onerror=null; this.parentElement.innerHTML='<div class=\\'pos-product-no-img\\'>📦</div>';">` 
+              ? `<img src="${p.image_url}" alt="${safeName}" class="pos-product-img" onerror="this.onerror=null; this.parentElement.innerHTML='<div class=\\'pos-product-no-img\\'>📦</div>';">` 
               : `<div class="pos-product-no-img">📦</div>`
             }
           </div>
           <div>
-            <div class="pos-product-name" title="${this.escape(p.name)}">${this.escape(p.name)}</div>
-            <div class="pos-product-sku">${this.escape(p.sku || '')} • ${this.escape(p.category || 'General')}</div>
+            <div class="pos-product-name" title="${safeName}">${safeName}</div>
+            <div class="pos-product-sku">${safeSku ? safeSku + ' • ' : ''}${safeCategory}</div>
           </div>
           <div class="pos-product-meta">
             <div class="pos-product-price">${State.formatMoney(p.selling_price)}</div>
             <div class="pos-product-stock ${isOut ? 'out' : (isLow ? 'low' : '')}">
-              ${p.stock_quantity} ${this.escape(p.unit || 'pcs')}
+              ${stock} ${safeUnit}
             </div>
           </div>
-          <button type="button" class="btn btn-sm btn-primary pos-add-cart-btn" onclick="event.stopPropagation(); App.addProductToPOSCart('${p.id}')">
+          <button type="button" class="btn btn-sm btn-primary pos-add-cart-btn" onclick="event.stopPropagation(); App.addProductToPOSCart('${safeId}')">
             + Add to Cart
           </button>
         </div>
@@ -777,21 +798,26 @@ const App = {
   },
 
   addProductToPOSCart(productId) {
-    const prod = this.productsCache.find(p => String(p.id) === String(productId));
+    if (!this.productsCache || this.productsCache.length === 0) {
+      State.showToast('Product catalog is loading, please try in a moment', 'warning');
+      return;
+    }
+    const targetId = String(productId);
+    const prod = this.productsCache.find(p => String(p.id) === targetId);
     if (!prod) {
       State.showToast('Product not found in catalog', 'warning');
       return;
     }
     State.addToCart(prod, 1);
     this.renderCartUI();
-    State.showToast(`Added "${prod.name}" to cart`, 'success');
+    State.showToast(`Added "${prod.name || 'Product'}" to cart`, 'success');
   },
 
   renderCartUI() {
     const container = document.getElementById('pos-cart-items');
     if (!container) return;
 
-    if (State.cart.length === 0) {
+    if (!State.cart || State.cart.length === 0) {
       container.innerHTML = `
         <div class="empty-state" style="padding: 40px 10px;">
           <p>Cart is empty.<br>Click items on the left or press "+ Add to Cart".</p>
@@ -801,37 +827,61 @@ const App = {
       return;
     }
 
-    container.innerHTML = State.cart.map(item => `
-      <div class="pos-cart-item">
-        ${item.image_url ? `<img src="${item.image_url}" class="cart-item-thumb" alt="${this.escape(item.product_name)}" onerror="this.style.display='none'">` : ''}
-        <div class="cart-item-info">
-          <div class="cart-item-title">${this.escape(item.product_name)}</div>
-          <div class="cart-item-price">${State.formatMoney(item.unit_price)} / ${this.escape(item.unit || 'pcs')}</div>
+    container.innerHTML = State.cart.map(item => {
+      const safeId = this.escape(String(item.product_id));
+      const safeName = this.escape(item.product_name || 'Product');
+      const safeUnit = this.escape(item.unit || 'pcs');
+
+      return `
+        <div class="pos-cart-item">
+          ${item.image_url ? `<img src="${item.image_url}" class="cart-item-thumb" alt="${safeName}" onerror="this.style.display='none'">` : ''}
+          <div class="cart-item-info">
+            <div class="cart-item-title">${safeName}</div>
+            <div class="cart-item-price">${State.formatMoney(item.unit_price)} / ${safeUnit}</div>
+          </div>
+          <div class="cart-item-controls">
+            <button class="qty-btn" type="button" onclick="App.adjustCartItemQty('${safeId}', -1)">-</button>
+            <input type="number" class="qty-input" value="${item.quantity}" min="0.1" step="any" onchange="App.setCartItemQty('${safeId}', this.value)">
+            <button class="qty-btn" type="button" onclick="App.adjustCartItemQty('${safeId}', 1)">+</button>
+            <div style="font-weight: 700; min-width: 65px; text-align: right; font-size: 13px;">${State.formatMoney(item.total_price)}</div>
+            <button style="background: none; border: none; color: var(--danger); cursor: pointer; padding: 2px 6px; font-size: 14px; font-weight: bold;" title="Remove" onclick="App.removeCartItem('${safeId}')">✕</button>
+          </div>
         </div>
-        <div class="cart-item-controls">
-          <button class="qty-btn" type="button" onclick="App.adjustCartItemQty('${item.product_id}', -1)">-</button>
-          <input type="number" class="qty-input" value="${item.quantity}" min="0.1" step="any" onchange="App.setCartItemQty('${item.product_id}', this.value)">
-          <button class="qty-btn" type="button" onclick="App.adjustCartItemQty('${item.product_id}', 1)">+</button>
-          <div style="font-weight: 700; min-width: 65px; text-align: right; font-size: 13px;">${State.formatMoney(item.total_price)}</div>
-          <button style="background: none; border: none; color: var(--danger); cursor: pointer; padding: 2px 6px; font-size: 14px; font-weight: bold;" title="Remove" onclick="App.removeCartItem('${item.product_id}')">✕</button>
-        </div>
-      </div>
-    `).join('');
+      `;
+    }).join('');
 
     this.updatePOSSummary();
   },
 
   adjustCartItemQty(productId, delta) {
-    const item = State.cart.find(i => String(i.product_id) === String(productId));
+    const targetId = String(productId);
+    const item = (State.cart || []).find(i => String(i.product_id) === targetId);
     if (item) {
-      const newQty = item.quantity + delta;
+      const newQty = Math.round((item.quantity + delta) * 100) / 100;
       if (newQty <= 0) {
-        State.removeFromCart(productId);
+        State.removeFromCart(targetId);
       } else {
-        State.updateCartQty(productId, newQty);
+        State.updateCartQty(targetId, newQty);
       }
       this.renderCartUI();
     }
+  },
+
+  setCartItemQty(productId, val) {
+    const targetId = String(productId);
+    const qty = parseFloat(val);
+    if (isNaN(qty) || qty <= 0) {
+      State.removeFromCart(targetId);
+    } else {
+      State.updateCartQty(targetId, qty);
+    }
+    this.renderCartUI();
+  },
+
+  removeCartItem(productId) {
+    State.removeFromCart(String(productId));
+    this.renderCartUI();
+  },
   },
 
   setCartItemQty(productId, val) {

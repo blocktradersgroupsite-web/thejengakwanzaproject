@@ -14,6 +14,19 @@
   <link rel="apple-touch-icon" href="assets/logo.jpg">
 </head>
 <body>
+  <script>
+    // Instant Visual Gate: Prevents UI stacking/freezing and shows correct screen with 0ms delay
+    (function() {
+      try {
+        var user = localStorage.getItem('jengakwanza_auth_user');
+        if (!user) {
+          document.write('<style>#auth-page{display:flex!important;}#app-layout{display:none!important;}</style>');
+        } else {
+          document.write('<style>#auth-page{display:none!important;}#app-layout{display:flex!important;}</style>');
+        }
+      } catch(e) {}
+    })();
+  </script>
 
   <!-- Dedicated Full-Screen Authentication Page -->
   <div id="auth-page" class="auth-wrapper" style="display: none;">

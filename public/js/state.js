@@ -35,35 +35,55 @@ const State = {
     Printer.init(this.settings);
   },
 
+  escape(str) {
+    if (str === null || str === undefined) return '';
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#39;');
+  },
+
   // Cart operations for POS
   addToCart(product, qty = 1) {
-    const existing = this.cart.find(item => String(item.product_id) === String(product.id));
+    if (!this.cart || !Array.isArray(this.cart)) {
+      this.cart = [];
+    }
+    const targetId = String(product.id !== undefined && product.id !== null ? product.id : '');
+    const existing = this.cart.find(item => String(item.product_id) === targetId);
+    const quantity = parseFloat(qty) || 1;
+    const unitPrice = parseFloat(product.selling_price || product.unit_price || 0) || 0;
+    const costPrice = parseFloat(product.cost_price || 0) || 0;
+
     if (existing) {
-      existing.quantity += qty;
+      existing.quantity = Math.round((existing.quantity + quantity) * 100) / 100;
       existing.total_price = existing.quantity * existing.unit_price;
     } else {
       this.cart.push({
         product_id: product.id,
-        product_name: product.name,
+        product_name: product.name || 'Product',
         image_url: product.image_url || '',
         unit: product.unit || 'pcs',
-        cost_price: parseFloat(product.cost_price || 0),
-        unit_price: parseFloat(product.selling_price || 0),
-        quantity: qty,
-        total_price: qty * parseFloat(product.selling_price || 0)
+        cost_price: costPrice,
+        unit_price: unitPrice,
+        quantity: quantity,
+        total_price: quantity * unitPrice
       });
     }
   },
 
   updateCartQty(productId, qty) {
+    if (!this.cart) this.cart = [];
     const item = this.cart.find(i => String(i.product_id) === String(productId));
     if (item) {
-      item.quantity = Math.max(0.1, parseFloat(qty));
+      item.quantity = Math.max(0.1, parseFloat(qty) || 1);
       item.total_price = item.quantity * item.unit_price;
     }
   },
 
   removeFromCart(productId) {
+    if (!this.cart) this.cart = [];
     this.cart = this.cart.filter(i => String(i.product_id) !== String(productId));
   },
 
@@ -73,13 +93,15 @@ const State = {
   },
 
   getCartSubtotal() {
-    return this.cart.reduce((sum, item) => sum + (item.total_price || 0), 0);
+    if (!this.cart || !Array.isArray(this.cart)) return 0;
+    return this.cart.reduce((sum, item) => sum + (parseFloat(item.total_price) || 0), 0);
   },
 
   formatMoney(amount) {
     const val = parseFloat(amount || 0);
-    const sym = this.settings.currency_symbol || 'TSh';
-    return `${sym} ${val.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
+    const sym = (this.settings && this.settings.currency_symbol) || 'TSh';
+    const safeVal = isNaN(val) ? 0 : val;
+    return `${sym} ${safeVal.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })}`;
   },
 
   formatDate(dateStr) {

@@ -3,7 +3,7 @@
 
 const FirebaseAdapter = {
   dbUrl: "https://jengakwanzaltd-1409a-default-rtdb.firebaseio.com",
-  isInitialized: true,
+  isInitialized: false,
   isOnline: navigator.onLine,
   syncInProgress: false,
   memoryCache: {},
@@ -14,7 +14,8 @@ const FirebaseAdapter = {
     return Boolean(this.dbUrl && window.FIREBASE_CONFIG && window.FIREBASE_CONFIG.projectId);
   },
 
-  async init() {
+  init() {
+    if (this.isInitialized) return true;
     this.isInitialized = true;
     this.loadAllCaches();
     this.setupNetworkListeners();
@@ -269,10 +270,20 @@ const FirebaseAdapter = {
       workers = Array.isArray(cached) ? cached : Object.keys(cached).map(k => ({ id: k, ...cached[k] }));
     }
 
-    if (navigator.onLine) {
-      this.rawFetch('users', 'GET', null, 3000).then(raw => {
-        if (raw) this.setCache('users', raw);
-      }).catch(() => {});
+    if (workers.length > 0) {
+      if (navigator.onLine) {
+        this.rawFetch('users', 'GET', null, 2500).then(raw => {
+          if (raw) this.setCache('users', raw);
+        }).catch(() => {});
+      }
+    } else if (navigator.onLine) {
+      try {
+        const raw = await this.rawFetch('users', 'GET', null, 2500);
+        if (raw) {
+          this.setCache('users', raw);
+          workers = Array.isArray(raw) ? raw : Object.keys(raw).map(k => ({ id: k, ...raw[k] }));
+        }
+      } catch (e) {}
     }
 
     // Default admin if nothing stored
@@ -395,17 +406,36 @@ const FirebaseAdapter = {
   // 4. PRODUCTS & INVENTORY
   // -------------------------------------------------------------
   async getProducts() {
-    const cached = this.getCache('products');
+    let cached = this.getCache('products');
     let products = [];
     if (cached) {
       products = Array.isArray(cached) ? cached.filter(Boolean) : Object.keys(cached).map(k => ({ id: k, ...cached[k] }));
     }
 
-    if (navigator.onLine) {
-      this.rawFetch('products', 'GET', null, 3000).then(raw => {
-        if (raw) this.setCache('products', raw);
-      }).catch(() => {});
+    if (products.length > 0) {
+      if (navigator.onLine) {
+        this.rawFetch('products', 'GET', null, 2500).then(raw => {
+          if (raw) this.setCache('products', raw);
+        }).catch(() => {});
+      }
+    } else if (navigator.onLine) {
+      try {
+        const raw = await this.rawFetch('products', 'GET', null, 2500);
+        if (raw) {
+          this.setCache('products', raw);
+          products = Array.isArray(raw) ? raw.filter(Boolean) : Object.keys(raw).map(k => ({ id: k, ...raw[k] }));
+        }
+      } catch (e) {}
     }
+
+    // Ensure all products have id and valid numbers
+    products = products.map((p, idx) => ({
+      ...p,
+      id: String(p.id !== undefined && p.id !== null ? p.id : `prod_${idx}`),
+      stock_quantity: parseFloat(p.stock_quantity || 0),
+      selling_price: parseFloat(p.selling_price || 0),
+      cost_price: parseFloat(p.cost_price || 0)
+    }));
 
     return { success: true, products };
   },
@@ -598,10 +628,20 @@ const FirebaseAdapter = {
       customers = Array.isArray(cached) ? cached : Object.keys(cached).map(k => ({ id: k, ...cached[k] }));
     }
 
-    if (navigator.onLine) {
-      this.rawFetch('customers', 'GET', null, 3000).then(raw => {
-        if (raw) this.setCache('customers', raw);
-      }).catch(() => {});
+    if (customers.length > 0) {
+      if (navigator.onLine) {
+        this.rawFetch('customers', 'GET', null, 2500).then(raw => {
+          if (raw) this.setCache('customers', raw);
+        }).catch(() => {});
+      }
+    } else if (navigator.onLine) {
+      try {
+        const raw = await this.rawFetch('customers', 'GET', null, 2500);
+        if (raw) {
+          this.setCache('customers', raw);
+          customers = Array.isArray(raw) ? raw : Object.keys(raw).map(k => ({ id: k, ...raw[k] }));
+        }
+      } catch (e) {}
     }
 
     return { success: true, customers };
@@ -1067,18 +1107,35 @@ const FirebaseAdapter = {
     todayExpenses.forEach(e => { todayExpTotal += parseFloat(e.amount || 0); });
 
     const capRes = await this.getCapital();
+    const cap = (capRes && capRes.capital) || {};
     const prodsObj = this.getCache('products') || {};
-    const lowStock = Object.values(prodsObj).filter(p => p.stock_quantity <= p.min_alert_quantity).length;
+    const lowStock = Object.values(prodsObj).filter(p => (parseFloat(p.stock_quantity) || 0) <= (parseFloat(p.min_alert_quantity) || 5)).length;
+
+    const cash = parseFloat(cap.cash_balance || 0);
+    const bank = parseFloat(cap.bank_balance || 0);
+    const mobile = parseFloat(cap.mobile_money_balance || 0);
+    const debtors = parseFloat(cap.total_debtors || 0);
+    const stockVal = parseFloat(cap.stock_cost_valuation || 0);
+
+    const reportData = {
+      capital_available: cash + bank + mobile,
+      cash_in_hand: cash,
+      bank_balance: bank,
+      mobile_balance: mobile,
+      today_sales: todaySales,
+      today_orders_count: todayOrders.length,
+      today_expenses: todayExpTotal,
+      net_today: todaySales - todayExpTotal,
+      debtors_total: debtors,
+      stock_value: stockVal,
+      low_stock_count: lowStock,
+      active_workers_count: 0
+    };
 
     return {
       success: true,
-      today_sales: todaySales,
-      today_expenses: todayExpTotal,
-      today_net: todaySales - todayExpTotal,
-      total_debtors: capRes.capital.total_debtors,
-      total_stock_value: capRes.capital.stock_cost_valuation,
-      cash_in_hand: capRes.capital.cash_balance,
-      low_stock_count: lowStock,
+      dashboard: reportData,
+      ...reportData,
       recent_orders: allOrders.slice(0, 10)
     };
   },
@@ -1112,3 +1169,6 @@ const FirebaseAdapter = {
     };
   }
 };
+
+// Immediately auto-initialize memory cache and network listeners
+FirebaseAdapter.init();

@@ -1,7 +1,6 @@
 // JENGAKWANZA Progressive Web App Service Worker
-// Provides high-speed asset caching and full offline capability
-
-const CACHE_NAME = 'jengakwanza-cache-v1';
+// Ultra-fast Offline Support + Instant Asset Updates
+const CACHE_NAME = 'jengakwanza-cache-v2';
 const PRECACHE_ASSETS = [
   './',
   'index.html',
@@ -20,7 +19,7 @@ self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
       return cache.addAll(PRECACHE_ASSETS).catch((err) => {
-        console.warn('Pre-cache error (non-fatal):', err);
+        console.warn('Pre-cache warning (non-fatal):', err);
       });
     }).then(() => self.skipWaiting())
   );
@@ -32,6 +31,7 @@ self.addEventListener('activate', (event) => {
       return Promise.all(
         keys.map((key) => {
           if (key !== CACHE_NAME) {
+            console.log('Purging previous cache:', key);
             return caches.delete(key);
           }
         })
@@ -44,40 +44,38 @@ self.addEventListener('fetch', (event) => {
   const req = event.request;
   const url = new URL(req.url);
 
-  // Skip caching non-GET requests or Firebase RTDB data requests (handled by OfflineStore)
-  if (req.method !== 'GET' || url.hostname.includes('firebaseio.com') || url.hostname.includes('googleapis.com')) {
+  // Never intercept non-GET requests, API routes, Firebase cloud RTDB or Google endpoints
+  if (
+    req.method !== 'GET' ||
+    url.pathname.startsWith('/api') ||
+    url.hostname.includes('firebaseio.com') ||
+    url.hostname.includes('googleapis.com') ||
+    url.hostname.includes('postimg.cc')
+  ) {
     return;
   }
 
-  // Cache-First strategy for local static assets
+  // Network-First with Cache Fallback for instant updates + reliable offline operation
   event.respondWith(
-    caches.match(req).then((cachedResponse) => {
-      if (cachedResponse) {
-        // Return cached asset immediately, but fetch update in background (Stale-While-Revalidate)
-        fetch(req).then((networkResponse) => {
-          if (networkResponse && networkResponse.status === 200) {
-            caches.open(CACHE_NAME).then((cache) => cache.put(req, networkResponse));
-          }
-        }).catch(() => {});
-        return cachedResponse;
-      }
-
-      // If not in cache, fetch from network and cache for next time
-      return fetch(req).then((networkResponse) => {
-        if (!networkResponse || networkResponse.status !== 200 || networkResponse.type !== 'basic') {
-          return networkResponse;
+    fetch(req)
+      .then((networkResponse) => {
+        if (networkResponse && networkResponse.status === 200 && networkResponse.type === 'basic') {
+          const clone = networkResponse.clone();
+          caches.open(CACHE_NAME).then((cache) => cache.put(req, clone));
         }
-        const responseToCache = networkResponse.clone();
-        caches.open(CACHE_NAME).then((cache) => {
-          cache.put(req, responseToCache);
-        });
         return networkResponse;
-      }).catch(() => {
-        // Fallback for HTML page navigation when offline
+      })
+      .catch(async () => {
+        const cached = await caches.match(req);
+        if (cached) return cached;
         if (req.mode === 'navigate') {
-          return caches.match('index.html');
+          const fallback = await caches.match('index.html');
+          if (fallback) return fallback;
         }
-      });
-    })
+        return new Response('Network unavailable and resource not cached offline', {
+          status: 503,
+          headers: { 'Content-Type': 'text/plain' }
+        });
+      })
   );
 });
