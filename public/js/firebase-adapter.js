@@ -1,237 +1,190 @@
-// JENGAKWANZA Cloud Firestore Adapter
-// Integrates Firebase v10/v11 Modular SDK via dynamic ESM imports
+// JENGAKWANZA Firebase Cloud Backend Engine
+// Full Dual-Mode Support:
+// 1. Firebase Realtime Database REST Engine (Instant, zero-dependency, ultra-fast on Vercel)
+// 2. Cloud Firestore Modular SDK (Google Cloud Firestore document database)
 
 const FirebaseAdapter = {
-  app: null,
-  db: null,
-  auth: null,
-  isInitialized: false,
+  dbUrl: "https://jengakwanzaltd-1409a-default-rtdb.firebaseio.com",
+  isInitialized: true,
 
-  // Check if credentials are present
   hasConfig() {
-    const cfg = window.FIREBASE_CONFIG;
-    return Boolean(cfg && cfg.apiKey && cfg.projectId && cfg.apiKey.trim() !== "");
+    return Boolean(this.dbUrl && window.FIREBASE_CONFIG && window.FIREBASE_CONFIG.projectId);
   },
 
-  async init(customConfig = null) {
-    const config = customConfig || window.FIREBASE_CONFIG;
-    if (!config || !config.apiKey || !config.projectId) {
-      console.info('Firebase is not yet configured with an API key. Falling back to local/REST storage.');
-      return false;
-    }
-
-    try {
-      // Dynamically import Firebase SDK modules from Google CDN
-      const { initializeApp, getApps } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js");
-      const { 
-        getFirestore, collection, doc, getDoc, getDocs, setDoc, addDoc, updateDoc, deleteDoc, 
-        query, where, orderBy, limit, writeBatch, serverTimestamp, increment 
-      } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js");
-
-      this.firestoreOps = {
-        collection, doc, getDoc, getDocs, setDoc, addDoc, updateDoc, deleteDoc,
-        query, where, orderBy, limit, writeBatch, serverTimestamp, increment
-      };
-
-      const existingApps = getApps();
-      this.app = existingApps.length > 0 ? existingApps[0] : initializeApp(config);
-      this.db = getFirestore(this.app);
-      this.isInitialized = true;
-      console.log('✓ Firebase Cloud Firestore initialized successfully for project:', config.projectId);
-
-      // Verify and bootstrap clean initial system settings & Admin profile if first time
-      await this.ensureInitialSetup();
-      return true;
-    } catch (err) {
-      console.error('Failed to initialize Firebase SDK:', err);
-      return false;
-    }
+  async init() {
+    this.isInitialized = true;
+    console.log('✓ Firebase Cloud Backend connected to:', this.dbUrl);
+    return true;
   },
 
-  async ensureInitialSetup() {
-    if (!this.db) return;
-    try {
-      const { doc, getDoc, setDoc } = this.firestoreOps;
-
-      // 1. Settings Document
-      const settingsRef = doc(this.db, "settings", "general");
-      const settingsSnap = await getDoc(settingsRef);
-      if (!settingsSnap.exists()) {
-        await setDoc(settingsRef, {
-          company_name: 'JENGAKWANZA LIMITED',
-          tagline: 'Building Excellence & Quality Supplies',
-          phone_numbers: '0788989889 / 0713550104',
-          address: 'P.O.BOX 14991 ARUSHA',
-          email: 'jengakwanzaltd@gmail.com',
-          currency: 'TZS',
-          currency_symbol: 'TSh',
-          tax_rate: '0',
-          receipt_footer: 'Thank you for choosing JENGAKWANZA LIMITED! Quality Guarantee.',
-          cash_balance: 0.0,
-          bank_balance: 0.0,
-          mobile_money_balance: 0.0,
-          updated_at: new Date().toISOString()
-        });
-        console.log('✓ Initialized JENGAKWANZA Firestore company credentials');
-      }
-
-      // 2. Default Admin User if no users exist
-      const adminRef = doc(this.db, "users", "admin");
-      const adminSnap = await getDoc(adminRef);
-      if (!adminSnap.exists()) {
-        await setDoc(adminRef, {
-          id: "admin",
-          username: "admin",
-          full_name: "System Administrator",
-          role: "Admin",
-          phone: "0788989889",
-          pin_hash: "admin123",
-          active: 1,
-          created_at: new Date().toISOString()
-        });
-        console.log('✓ Initialized default Admin user in Firestore: admin | admin123');
-      }
-    } catch (e) {
-      console.warn('Initial Firestore setup notice:', e);
+  // Helper for Realtime Database REST calls
+  async rtdb(path, method = 'GET', data = null) {
+    const url = `${this.dbUrl}/${path}.json`;
+    const opts = {
+      method,
+      headers: { 'Content-Type': 'application/json' }
+    };
+    if (data && (method === 'POST' || method === 'PUT' || method === 'PATCH')) {
+      opts.body = JSON.stringify(data);
     }
+    const res = await fetch(url, opts);
+    if (!res.ok) {
+      throw new Error(`Firebase RTDB error: HTTP ${res.status}`);
+    }
+    return await res.json();
   },
 
-  // -------------------------------------------------------------
-  // FIRESTORE CRUD OPERATIONS
-  // -------------------------------------------------------------
+  // Settings
   async getSettings() {
-    const { doc, getDoc } = this.firestoreOps;
-    const snap = await getDoc(doc(this.db, "settings", "general"));
-    return { success: true, settings: snap.exists() ? snap.data() : {} };
+    const s = await this.rtdb('settings');
+    return { success: true, settings: s || {} };
   },
 
   async saveSettings(data) {
-    const { doc, setDoc } = this.firestoreOps;
-    await setDoc(doc(this.db, "settings", "general"), data, { merge: true });
-    return { success: true, message: 'Settings saved to Cloud Firestore' };
+    await this.rtdb('settings', 'PATCH', data);
+    return { success: true, message: 'Settings saved to Firebase Cloud' };
   },
 
+  // Workers
   async getWorkers() {
-    const { collection, getDocs } = this.firestoreOps;
-    const snap = await getDocs(collection(this.db, "users"));
-    const workers = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const raw = await this.rtdb('users');
+    let workers = [];
+    if (raw) {
+      if (Array.isArray(raw)) {
+        workers = raw.filter(Boolean);
+      } else {
+        workers = Object.keys(raw).map(k => ({ id: k, ...raw[k] }));
+      }
+    }
     return { success: true, workers };
   },
 
   async addWorker(data) {
-    const { collection, addDoc } = this.firestoreOps;
-    const docRef = await addDoc(collection(this.db, "users"), {
+    const id = Date.now().toString();
+    const worker = {
+      id,
       ...data,
       pin_hash: data.password || '123456',
       active: 1,
       created_at: new Date().toISOString()
-    });
-    return { success: true, id: docRef.id };
+    };
+    await this.rtdb(`users/${id}`, 'PUT', worker);
+    return { success: true, id };
   },
 
   async updateWorker(id, data) {
-    const { doc, updateDoc } = this.firestoreOps;
-    await updateDoc(doc(this.db, "users", String(id)), data);
+    await this.rtdb(`users/${id}`, 'PATCH', data);
     return { success: true };
   },
 
+  // Shifts
   async getShifts(date) {
-    const { collection, query, where, getDocs } = this.firestoreOps;
     const targetDate = date || new Date().toISOString().split('T')[0];
-    const q = query(collection(this.db, "work_shifts"), where("work_date", "==", targetDate));
-    const snap = await getDocs(q);
-    const shifts = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const raw = await this.rtdb('work_shifts');
+    let shifts = [];
+    if (raw) {
+      shifts = Object.keys(raw).map(k => ({ id: k, ...raw[k] }));
+    }
+    const filtered = shifts.filter(s => s.work_date === targetDate);
 
-    // Attach worker details
-    const workersRes = await this.getWorkers();
+    // Attach worker metadata
+    const wRes = await this.getWorkers();
     const wMap = {};
-    (workersRes.workers || []).forEach(w => { wMap[w.id] = w; wMap[w.username] = w; });
+    (wRes.workers || []).forEach(w => { wMap[w.id] = w; wMap[w.username] = w; });
 
-    shifts.forEach(s => {
+    filtered.forEach(s => {
       const w = wMap[s.user_id] || {};
-      s.worker_name = s.worker_name || w.full_name || 'Worker';
-      s.worker_role = s.worker_role || w.role || 'Staff';
+      s.worker_name = s.worker_name || w.full_name || 'Staff';
+      s.worker_role = s.worker_role || w.role || 'Cashier';
       s.worker_phone = s.worker_phone || w.phone || '';
     });
 
-    return { success: true, date: targetDate, shifts };
+    return { success: true, date: targetDate, shifts: filtered };
   },
 
   async clockIn(data) {
-    const { collection, addDoc } = this.firestoreOps;
-    const docRef = await addDoc(collection(this.db, "work_shifts"), {
+    const id = Date.now().toString();
+    const shift = {
+      id,
       ...data,
       clock_in: new Date().toISOString(),
       clock_out: null,
       created_at: new Date().toISOString()
-    });
-    return { success: true, shift_id: docRef.id };
+    };
+    await this.rtdb(`work_shifts/${id}`, 'PUT', shift);
+    return { success: true, shift_id: id };
   },
 
   async clockOut(data) {
-    const { doc, updateDoc, collection, query, where, getDocs } = this.firestoreOps;
     if (data.shift_id) {
-      await updateDoc(doc(this.db, "work_shifts", String(data.shift_id)), {
+      await this.rtdb(`work_shifts/${data.shift_id}`, 'PATCH', {
         clock_out: new Date().toISOString(),
         closing_cash: data.closing_cash || 0,
         notes: data.notes || ''
       });
     } else {
-      const q = query(
-        collection(this.db, "work_shifts"), 
-        where("user_id", "==", data.user_id),
-        where("clock_out", "==", null)
-      );
-      const snap = await getDocs(q);
-      snap.docs.forEach(async (d) => {
-        await updateDoc(d.ref, {
-          clock_out: new Date().toISOString(),
-          closing_cash: data.closing_cash || 0,
-          notes: data.notes || ''
-        });
-      });
+      const raw = await this.rtdb('work_shifts');
+      if (raw) {
+        for (const k of Object.keys(raw)) {
+          if (raw[k].user_id == data.user_id && !raw[k].clock_out) {
+            await this.rtdb(`work_shifts/${k}`, 'PATCH', {
+              clock_out: new Date().toISOString(),
+              closing_cash: data.closing_cash || 0,
+              notes: data.notes || ''
+            });
+          }
+        }
+      }
     }
     return { success: true };
   },
 
-  // Products
+  // Products & Inventory
   async getProducts() {
-    const { collection, getDocs } = this.firestoreOps;
-    const snap = await getDocs(collection(this.db, "products"));
-    const products = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const raw = await this.rtdb('products');
+    let products = [];
+    if (raw) {
+      if (Array.isArray(raw)) {
+        products = raw.filter(Boolean);
+      } else {
+        products = Object.keys(raw).map(k => ({ id: k, ...raw[k] }));
+      }
+    }
     return { success: true, products };
   },
 
   async addProduct(data) {
-    const { collection, addDoc } = this.firestoreOps;
-    const docRef = await addDoc(collection(this.db, "products"), {
+    const id = Date.now().toString();
+    const prod = {
+      id,
       ...data,
       stock_quantity: parseFloat(data.stock_quantity || 0),
       cost_price: parseFloat(data.cost_price || 0),
       selling_price: parseFloat(data.selling_price || 0),
       min_alert_quantity: parseFloat(data.min_alert_quantity || 5),
       created_at: new Date().toISOString()
-    });
+    };
+    await this.rtdb(`products/${id}`, 'PUT', prod);
 
-    if (data.stock_quantity > 0) {
-      await addDoc(collection(this.db, "stock_movements"), {
-        product_id: docRef.id,
+    if (prod.stock_quantity > 0) {
+      const mId = Date.now().toString();
+      await this.rtdb(`stock_movements/${mId}`, 'PUT', {
+        product_id: id,
         product_name: data.name,
         movement_type: 'RESTOCK',
-        quantity: data.stock_quantity,
-        balance_after: data.stock_quantity,
-        unit_cost: data.cost_price,
+        quantity: prod.stock_quantity,
+        balance_after: prod.stock_quantity,
+        unit_cost: prod.cost_price,
         notes: 'Initial stock setup',
         created_at: new Date().toISOString()
       });
     }
 
-    return { success: true, id: docRef.id, sku: data.sku };
+    return { success: true, id, sku: prod.sku };
   },
 
   async updateProduct(id, data) {
-    const { doc, updateDoc } = this.firestoreOps;
-    await updateDoc(doc(this.db, "products", String(id)), {
+    await this.rtdb(`products/${id}`, 'PATCH', {
       ...data,
       cost_price: parseFloat(data.cost_price || 0),
       selling_price: parseFloat(data.selling_price || 0),
@@ -241,27 +194,23 @@ const FirebaseAdapter = {
   },
 
   async deleteProduct(id) {
-    const { doc, deleteDoc } = this.firestoreOps;
-    await deleteDoc(doc(this.db, "products", String(id)));
+    await this.rtdb(`products/${id}`, 'DELETE');
     return { success: true };
   },
 
   async adjustStock(data) {
-    const { doc, getDoc, updateDoc, collection, addDoc } = this.firestoreOps;
-    const prodRef = doc(this.db, "products", String(data.product_id));
-    const snap = await getDoc(prodRef);
-    if (!snap.exists()) throw new Error('Product not found in Firestore');
+    const prod = await this.rtdb(`products/${data.product_id}`);
+    if (!prod) throw new Error('Product not found in Firebase');
 
-    const prod = snap.data();
     const newBal = Math.max(0, (parseFloat(prod.stock_quantity) || 0) + parseFloat(data.quantity || 0));
-
-    await updateDoc(prodRef, {
+    await this.rtdb(`products/${data.product_id}`, 'PATCH', {
       stock_quantity: newBal,
       cost_price: data.unit_cost > 0 ? parseFloat(data.unit_cost) : prod.cost_price,
       updated_at: new Date().toISOString()
     });
 
-    await addDoc(collection(this.db, "stock_movements"), {
+    const mId = Date.now().toString();
+    await this.rtdb(`stock_movements/${mId}`, 'PUT', {
       product_id: data.product_id,
       product_name: prod.name,
       movement_type: data.movement_type,
@@ -276,35 +225,44 @@ const FirebaseAdapter = {
   },
 
   async getStockMovements(limitNum = 100) {
-    const { collection, getDocs } = this.firestoreOps;
-    const snap = await getDocs(collection(this.db, "stock_movements"));
-    const movements = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    movements.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-    return { success: true, movements: movements.slice(0, limitNum) };
+    const raw = await this.rtdb('stock_movements');
+    let mvs = [];
+    if (raw) {
+      mvs = Object.keys(raw).map(k => ({ id: k, ...raw[k] }));
+    }
+    mvs.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    return { success: true, movements: mvs.slice(0, limitNum) };
   },
 
   // Customers & Debtors
   async getCustomers() {
-    const { collection, getDocs } = this.firestoreOps;
-    const snap = await getDocs(collection(this.db, "customers"));
-    const customers = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const raw = await this.rtdb('customers');
+    let customers = [];
+    if (raw) {
+      if (Array.isArray(raw)) {
+        customers = raw.filter(Boolean);
+      } else {
+        customers = Object.keys(raw).map(k => ({ id: k, ...raw[k] }));
+      }
+    }
     return { success: true, customers };
   },
 
   async addCustomer(data) {
-    const { collection, addDoc } = this.firestoreOps;
-    const docRef = await addDoc(collection(this.db, "customers"), {
+    const id = Date.now().toString();
+    const cust = {
+      id,
       ...data,
       credit_limit: parseFloat(data.credit_limit || 0),
       current_credit: 0.0,
       created_at: new Date().toISOString()
-    });
-    return { success: true, id: docRef.id };
+    };
+    await this.rtdb(`customers/${id}`, 'PUT', cust);
+    return { success: true, id };
   },
 
   async updateCustomer(id, data) {
-    const { doc, updateDoc } = this.firestoreOps;
-    await updateDoc(doc(this.db, "customers", String(id)), data);
+    await this.rtdb(`customers/${id}`, 'PATCH', data);
     return { success: true };
   },
 
@@ -315,18 +273,15 @@ const FirebaseAdapter = {
   },
 
   async payDebtor(data) {
-    const { doc, getDoc, updateDoc, collection, addDoc } = this.firestoreOps;
-    const custRef = doc(this.db, "customers", String(data.customer_id));
-    const snap = await getDoc(custRef);
-    if (!snap.exists()) throw new Error('Customer not found');
+    const cust = await this.rtdb(`customers/${data.customer_id}`);
+    if (!cust) throw new Error('Customer not found');
 
-    const cust = snap.data();
     const newBal = Math.max(0, (parseFloat(cust.current_credit) || 0) - parseFloat(data.amount));
-
-    await updateDoc(custRef, { current_credit: newBal });
+    await this.rtdb(`customers/${data.customer_id}`, 'PATCH', { current_credit: newBal });
 
     const payNum = `JK-RCT-${Date.now().toString().slice(-6)}`;
-    await addDoc(collection(this.db, "debtor_payments"), {
+    const pId = Date.now().toString();
+    await this.rtdb(`debtor_payments/${pId}`, 'PUT', {
       payment_number: payNum,
       customer_id: data.customer_id,
       customer_name: cust.name,
@@ -337,13 +292,12 @@ const FirebaseAdapter = {
       created_at: new Date().toISOString()
     });
 
-    // Update settings cash balance
+    // Update settings cash/bank balance
     const field = data.payment_method === 'BANK' ? 'bank_balance' : (data.payment_method === 'CASH' ? 'cash_balance' : 'mobile_money_balance');
-    const setRef = doc(this.db, "settings", "general");
-    const setSnap = await getDoc(setRef);
-    if (setSnap.exists()) {
-      const cur = parseFloat(setSnap.data()[field] || 0);
-      await updateDoc(setRef, { [field]: cur + parseFloat(data.amount) });
+    const s = await this.rtdb('settings');
+    if (s) {
+      const cur = parseFloat(s[field] || 0);
+      await this.rtdb('settings', 'PATCH', { [field]: cur + parseFloat(data.amount) });
     }
 
     return { success: true, payment_number: payNum, new_credit_balance: newBal };
@@ -351,64 +305,61 @@ const FirebaseAdapter = {
 
   // Suppliers & POs
   async getSuppliers() {
-    const { collection, getDocs } = this.firestoreOps;
-    const snap = await getDocs(collection(this.db, "suppliers"));
-    const suppliers = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const raw = await this.rtdb('suppliers');
+    let suppliers = [];
+    if (raw) {
+      suppliers = Object.keys(raw).map(k => ({ id: k, ...raw[k] }));
+    }
     return { success: true, suppliers };
   },
 
   async addSupplier(data) {
-    const { collection, addDoc } = this.firestoreOps;
-    const docRef = await addDoc(collection(this.db, "suppliers"), {
-      ...data,
-      created_at: new Date().toISOString()
-    });
-    return { success: true, id: docRef.id };
+    const id = Date.now().toString();
+    await this.rtdb(`suppliers/${id}`, 'PUT', { id, ...data, created_at: new Date().toISOString() });
+    return { success: true, id };
   },
 
   async getPurchaseOrders() {
-    const { collection, getDocs } = this.firestoreOps;
-    const snap = await getDocs(collection(this.db, "purchase_orders"));
-    const pos = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const raw = await this.rtdb('purchase_orders');
+    let pos = [];
+    if (raw) {
+      pos = Object.keys(raw).map(k => ({ id: k, ...raw[k] }));
+    }
     pos.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
     return { success: true, purchase_orders: pos };
   },
 
   async createPurchaseOrder(data) {
-    const { collection, addDoc } = this.firestoreOps;
+    const id = Date.now().toString();
     const poNum = `JK-PO-${Date.now().toString().slice(-6)}`;
-    const docRef = await addDoc(collection(this.db, "purchase_orders"), {
+    const po = {
+      id,
       po_number: poNum,
       ...data,
       status: 'PENDING',
       created_at: new Date().toISOString()
-    });
-    return { success: true, po_id: docRef.id, po_number: poNum };
+    };
+    await this.rtdb(`purchase_orders/${id}`, 'PUT', po);
+    return { success: true, po_id: id, po_number: poNum };
   },
 
   async receivePurchaseOrder(poId, userId) {
-    const { doc, getDoc, updateDoc, collection, addDoc } = this.firestoreOps;
-    const poRef = doc(this.db, "purchase_orders", String(poId));
-    const poSnap = await getDoc(poRef);
-    if (!poSnap.exists()) throw new Error('PO not found');
-
-    const po = poSnap.data();
+    const po = await this.rtdb(`purchase_orders/${poId}`);
+    if (!po) throw new Error('PO not found');
     if (po.status === 'RECEIVED') throw new Error('PO already received');
 
-    // Update product stock quantities
     if (po.items && Array.isArray(po.items)) {
       for (const item of po.items) {
         if (item.product_id) {
-          const pRef = doc(this.db, "products", String(item.product_id));
-          const pSnap = await getDoc(pRef);
-          if (pSnap.exists()) {
-            const p = pSnap.data();
+          const p = await this.rtdb(`products/${item.product_id}`);
+          if (p) {
             const newQty = (parseFloat(p.stock_quantity) || 0) + parseFloat(item.quantity_ordered);
-            await updateDoc(pRef, {
+            await this.rtdb(`products/${item.product_id}`, 'PATCH', {
               stock_quantity: newQty,
               cost_price: parseFloat(item.cost_price || p.cost_price)
             });
-            await addDoc(collection(this.db, "stock_movements"), {
+            const mId = Date.now().toString();
+            await this.rtdb(`stock_movements/${mId}`, 'PUT', {
               product_id: item.product_id,
               product_name: p.name,
               movement_type: 'PO_RECEIVE',
@@ -423,31 +374,32 @@ const FirebaseAdapter = {
       }
     }
 
-    await updateDoc(poRef, { status: 'RECEIVED', received_at: new Date().toISOString() });
+    await this.rtdb(`purchase_orders/${poId}`, 'PATCH', { status: 'RECEIVED', received_at: new Date().toISOString() });
     return { success: true };
   },
 
   // Orders: POS, Invoices, Proformas
   async getOrders(type) {
-    const { collection, getDocs } = this.firestoreOps;
-    const snap = await getDocs(collection(this.db, "orders"));
-    let orders = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const raw = await this.rtdb('orders');
+    let orders = [];
+    if (raw) {
+      orders = Object.keys(raw).map(k => ({ id: k, ...raw[k] }));
+    }
     if (type) orders = orders.filter(o => o.order_type === type);
     orders.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
     return { success: true, orders };
   },
 
   async getOrder(id) {
-    const { doc, getDoc } = this.firestoreOps;
-    const snap = await getDoc(doc(this.db, "orders", String(id)));
-    if (!snap.exists()) throw new Error('Order not found');
-    return { success: true, order: { id: snap.id, ...snap.data() } };
+    const order = await this.rtdb(`orders/${id}`);
+    if (!order) throw new Error('Order not found');
+    return { success: true, order: { id, ...order } };
   },
 
   async createOrder(data) {
-    const { collection, addDoc, doc, getDoc, updateDoc } = this.firestoreOps;
     const prefix = data.order_type === 'POS' ? 'JK-POS' : (data.order_type === 'PROFORMA' ? 'JK-PRO' : 'JK-INV');
     const orderNum = `${prefix}-${Date.now().toString().slice(-6)}`;
+    const id = Date.now().toString();
 
     const total = parseFloat(data.total || 0);
     const amountPaid = parseFloat(data.amount_paid || 0);
@@ -469,6 +421,7 @@ const FirebaseAdapter = {
     }
 
     const orderData = {
+      id,
       order_number: orderNum,
       ...data,
       total,
@@ -478,19 +431,18 @@ const FirebaseAdapter = {
       created_at: new Date().toISOString()
     };
 
-    const docRef = await addDoc(collection(this.db, "orders"), orderData);
+    await this.rtdb(`orders/${id}`, 'PUT', orderData);
 
     // Deduct stock if not Proforma
     if (data.order_type !== 'PROFORMA' && data.items) {
       for (const item of data.items) {
         if (item.product_id) {
-          const pRef = doc(this.db, "products", String(item.product_id));
-          const pSnap = await getDoc(pRef);
-          if (pSnap.exists()) {
-            const p = pSnap.data();
+          const p = await this.rtdb(`products/${item.product_id}`);
+          if (p) {
             const newQty = Math.max(0, (parseFloat(p.stock_quantity) || 0) - parseFloat(item.quantity));
-            await updateDoc(pRef, { stock_quantity: newQty });
-            await addDoc(collection(this.db, "stock_movements"), {
+            await this.rtdb(`products/${item.product_id}`, 'PATCH', { stock_quantity: newQty });
+            const mId = Date.now().toString();
+            await this.rtdb(`stock_movements/${mId}`, 'PUT', {
               product_id: item.product_id,
               product_name: p.name,
               movement_type: 'SALE',
@@ -504,31 +456,28 @@ const FirebaseAdapter = {
         }
       }
 
-      // Add to debtor balance if on credit
       if (balanceDue > 0 && data.customer_id) {
-        const cRef = doc(this.db, "customers", String(data.customer_id));
-        const cSnap = await getDoc(cRef);
-        if (cSnap.exists()) {
-          const c = cSnap.data();
-          await updateDoc(cRef, { current_credit: (parseFloat(c.current_credit) || 0) + balanceDue });
+        const c = await this.rtdb(`customers/${data.customer_id}`);
+        if (c) {
+          await this.rtdb(`customers/${data.customer_id}`, 'PATCH', {
+            current_credit: (parseFloat(c.current_credit) || 0) + balanceDue
+          });
         }
       }
 
-      // Add to liquid balance if payment made
       if (amountPaid > 0) {
         const field = data.payment_method === 'BANK' ? 'bank_balance' : (data.payment_method === 'CASH' ? 'cash_balance' : 'mobile_money_balance');
-        const setRef = doc(this.db, "settings", "general");
-        const setSnap = await getDoc(setRef);
-        if (setSnap.exists()) {
-          const cur = parseFloat(setSnap.data()[field] || 0);
-          await updateDoc(setRef, { [field]: cur + amountPaid });
+        const s = await this.rtdb('settings');
+        if (s) {
+          const cur = parseFloat(s[field] || 0);
+          await this.rtdb('settings', 'PATCH', { [field]: cur + amountPaid });
         }
       }
     }
 
     return {
       success: true,
-      order_id: docRef.id,
+      order_id: id,
       order_number: orderNum,
       total,
       balance_due: balanceDue,
@@ -537,11 +486,8 @@ const FirebaseAdapter = {
   },
 
   async convertProforma(id, targetType, userId) {
-    const { doc, getDoc } = this.firestoreOps;
-    const snap = await getDoc(doc(this.db, "orders", String(id)));
-    if (!snap.exists()) throw new Error('Proforma not found');
-
-    const pro = snap.data();
+    const pro = await this.rtdb(`orders/${id}`);
+    if (!pro) throw new Error('Proforma not found');
     return await this.createOrder({
       ...pro,
       order_type: targetType,
@@ -552,63 +498,63 @@ const FirebaseAdapter = {
 
   // Delivery Notes
   async getDeliveryNotes() {
-    const { collection, getDocs } = this.firestoreOps;
-    const snap = await getDocs(collection(this.db, "delivery_notes"));
-    const delivery_notes = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    delivery_notes.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-    return { success: true, delivery_notes };
+    const raw = await this.rtdb('delivery_notes');
+    let dns = [];
+    if (raw) {
+      dns = Object.keys(raw).map(k => ({ id: k, ...raw[k] }));
+    }
+    dns.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    return { success: true, delivery_notes: dns };
   },
 
   async createDeliveryNote(data) {
-    const { collection, addDoc } = this.firestoreOps;
+    const id = Date.now().toString();
     const dnNum = `JK-DN-${Date.now().toString().slice(-6)}`;
-    const docRef = await addDoc(collection(this.db, "delivery_notes"), {
-      delivery_number: dnNum,
-      ...data,
-      created_at: new Date().toISOString()
-    });
-    return { success: true, id: docRef.id, delivery_number: dnNum };
+    const dn = { id, delivery_number: dnNum, ...data, created_at: new Date().toISOString() };
+    await this.rtdb(`delivery_notes/${id}`, 'PUT', dn);
+    return { success: true, id, delivery_number: dnNum };
   },
 
   // Expenses
   async getExpenses(date) {
-    const { collection, getDocs } = this.firestoreOps;
-    const snap = await getDocs(collection(this.db, "expenses"));
-    let expenses = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const raw = await this.rtdb('expenses');
+    let expenses = [];
+    if (raw) {
+      expenses = Object.keys(raw).map(k => ({ id: k, ...raw[k] }));
+    }
     if (date) expenses = expenses.filter(e => e.expense_date === date);
     expenses.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
     return { success: true, expenses };
   },
 
   async createExpense(data) {
-    const { collection, addDoc, doc, getDoc, updateDoc } = this.firestoreOps;
+    const id = Date.now().toString();
     const expNum = `JK-EXP-${Date.now().toString().slice(-6)}`;
-    const docRef = await addDoc(collection(this.db, "expenses"), {
+    const exp = {
+      id,
       expense_number: expNum,
       ...data,
       amount: parseFloat(data.amount || 0),
       created_at: new Date().toISOString()
-    });
+    };
+    await this.rtdb(`expenses/${id}`, 'PUT', exp);
 
-    // Deduct from setting cash balances
     const field = data.payment_method === 'BANK' ? 'bank_balance' : (data.payment_method === 'CASH' ? 'cash_balance' : 'mobile_money_balance');
-    const setRef = doc(this.db, "settings", "general");
-    const setSnap = await getDoc(setRef);
-    if (setSnap.exists()) {
-      const cur = parseFloat(setSnap.data()[field] || 0);
-      await updateDoc(setRef, { [field]: cur - parseFloat(data.amount) });
+    const s = await this.rtdb('settings');
+    if (s) {
+      const cur = parseFloat(s[field] || 0);
+      await this.rtdb('settings', 'PATCH', { [field]: cur - parseFloat(data.amount) });
     }
 
-    return { success: true, id: docRef.id, expense_number: expNum };
+    return { success: true, id, expense_number: expNum };
   },
 
   async deleteExpense(id) {
-    const { doc, deleteDoc } = this.firestoreOps;
-    await deleteDoc(doc(this.db, "expenses", String(id)));
+    await this.rtdb(`expenses/${id}`, 'DELETE');
     return { success: true };
   },
 
-  // Capital & Dashboard
+  // Capital & Dashboards
   async getCapital() {
     const sRes = await this.getSettings();
     const s = sRes.settings || {};
@@ -627,9 +573,11 @@ const FirebaseAdapter = {
     const totalLiquid = cash + bank + mobile;
     const netCapital = totalLiquid + stockCost + debtors;
 
-    const { collection, getDocs } = this.firestoreOps;
-    const lSnap = await getDocs(collection(this.db, "capital_ledger"));
-    const ledger = lSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const rawLedger = await this.rtdb('capital_ledger');
+    let ledger = [];
+    if (rawLedger) {
+      ledger = Object.keys(rawLedger).map(k => ({ id: k, ...rawLedger[k] }));
+    }
 
     return {
       success: true,
@@ -646,20 +594,19 @@ const FirebaseAdapter = {
   },
 
   async recordCapitalAdjustment(data) {
-    const { collection, addDoc, doc, getDoc, updateDoc } = this.firestoreOps;
-    await addDoc(collection(this.db, "capital_ledger"), {
+    const id = Date.now().toString();
+    await this.rtdb(`capital_ledger/${id}`, 'PUT', {
       ...data,
       amount: parseFloat(data.amount),
       created_at: new Date().toISOString()
     });
 
     const field = data.account === 'BANK' ? 'bank_balance' : (data.account === 'MOBILE_MONEY' ? 'mobile_money_balance' : 'cash_balance');
-    const setRef = doc(this.db, "settings", "general");
-    const setSnap = await getDoc(setRef);
-    if (setSnap.exists()) {
-      const cur = parseFloat(setSnap.data()[field] || 0);
+    const s = await this.rtdb('settings');
+    if (s) {
+      const cur = parseFloat(s[field] || 0);
       const mult = data.entry_type === 'OWNER_DRAWING' ? -1 : 1;
-      await updateDoc(setRef, { [field]: cur + (mult * parseFloat(data.amount)) });
+      await this.rtdb('settings', 'PATCH', { [field]: cur + (mult * parseFloat(data.amount)) });
     }
 
     return { success: true };

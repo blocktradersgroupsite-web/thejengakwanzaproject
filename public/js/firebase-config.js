@@ -4,6 +4,7 @@
 window.FIREBASE_CONFIG = {
   apiKey: "AIzaSyCmxuidbacbsv1wWuno1_NREba00FYcNha",
   authDomain: "jengakwanzaltd-1409a.firebaseapp.com",
+  databaseURL: "https://jengakwanzaltd-1409a-default-rtdb.firebaseio.com",
   projectId: "jengakwanzaltd-1409a",
   storageBucket: "jengakwanzaltd-1409a.firebasestorage.app",
   messagingSenderId: "23477001989",
