@@ -19,8 +19,9 @@ const App = {
 
     // 2. Check Authentication
     if (!State.currentUser) {
-      this.showLoginModal();
+      this.showAuthPage();
     } else {
+      this.hideAuthPage();
       this.checkShiftStatus();
       this.renderApp();
     }
@@ -29,44 +30,93 @@ const App = {
   // -------------------------------------------------------------
   // AUTHENTICATION & WORKER SESSIONS
   // -------------------------------------------------------------
-  showLoginModal() {
-    const modal = document.getElementById('login-modal');
-    if (modal) {
-      modal.classList.add('active');
-      document.getElementById('login-username').focus();
+  showAuthPage() {
+    const authPage = document.getElementById('auth-page');
+    const appLayout = document.getElementById('app-layout');
+    if (authPage) authPage.style.display = 'flex';
+    if (appLayout) appLayout.style.display = 'none';
+
+    const errAlert = document.getElementById('auth-error-alert');
+    if (errAlert) {
+      errAlert.style.display = 'none';
+      errAlert.textContent = '';
     }
+
+    const uInput = document.getElementById('login-username');
+    if (uInput) {
+      uInput.value = '';
+      setTimeout(() => uInput.focus(), 100);
+    }
+    const pInput = document.getElementById('login-password');
+    if (pInput) pInput.value = '';
+  },
+
+  hideAuthPage() {
+    const authPage = document.getElementById('auth-page');
+    const appLayout = document.getElementById('app-layout');
+    if (authPage) authPage.style.display = 'none';
+    if (appLayout) appLayout.style.display = 'flex';
+  },
+
+  togglePasswordVisibility() {
+    const pInput = document.getElementById('login-password');
+    if (!pInput) return;
+    pInput.type = pInput.type === 'password' ? 'text' : 'password';
   },
 
   async handleLogin(e) {
     e.preventDefault();
     const uInput = document.getElementById('login-username');
     const pInput = document.getElementById('login-password');
+    const btn = document.getElementById('auth-submit-btn');
+    const errAlert = document.getElementById('auth-error-alert');
+
     const username = uInput.value.trim();
     const password = pInput.value.trim();
 
     if (!username || !password) {
-      State.showToast('Please enter both username and password', 'error');
+      if (errAlert) {
+        errAlert.textContent = 'Please enter both username and password.';
+        errAlert.style.display = 'block';
+      }
       return;
     }
+
+    if (btn) {
+      btn.disabled = true;
+      btn.innerHTML = `<span class="spinner" style="width: 16px; height: 16px; border-width: 2px;"></span> Signing in...`;
+    }
+    if (errAlert) errAlert.style.display = 'none';
 
     try {
       const res = await API.login(username, password);
       if (res && res.success && res.user) {
         State.setUser(res.user);
-        document.getElementById('login-modal').classList.remove('active');
+        this.hideAuthPage();
         State.showToast(`Welcome back, ${res.user.full_name}!`, 'success');
         await this.checkShiftStatus();
         this.renderApp();
+      } else {
+        throw new Error((res && res.message) || 'Invalid username or password. Please try again.');
       }
     } catch (err) {
-      State.showToast(err.message || 'Login failed. Please check credentials.', 'error');
+      if (errAlert) {
+        errAlert.textContent = err.message || 'Invalid username or password. Please try again.';
+        errAlert.style.display = 'block';
+      }
+      State.showToast(err.message || 'Authentication failed', 'error');
+    } finally {
+      if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = `<span>Sign In</span><svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M14 5l7 7m0 0l-7 7m7-7H3"></path></svg>`;
+      }
     }
   },
 
   handleLogout() {
-    if (confirm('Are you sure you want to log out of JENGAKWANZA?')) {
+    if (confirm('Are you sure you want to log out?')) {
       State.setUser(null);
-      location.reload();
+      this.showAuthPage();
     }
   },
 
@@ -2545,7 +2595,10 @@ const App = {
             </div>
             <div style="display: flex; gap: 10px; align-items: center;">
               <input type="date" id="report-date-picker" class="form-input" style="width: 160px; padding: 6px 10px;" value="${date}" onchange="App.onReportDateChange(this.value)">
-              <button class="btn btn-secondary" onclick="window.print()">Print Report</button>
+              <button class="btn btn-secondary" onclick="App.printDailyReport()">
+                <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="margin-right: 4px;"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"></path></svg>
+                Print Report
+              </button>
             </div>
           </div>
 
@@ -2613,6 +2666,17 @@ const App = {
   onReportDateChange(date) {
     State.selectedReportDate = date;
     this.renderReports(document.getElementById('content-area'));
+  },
+
+  async printDailyReport() {
+    const date = State.selectedReportDate || new Date().toISOString().split('T')[0];
+    try {
+      const rep = await API.getDailyReport(date);
+      const html = Printer.renderA4DailyReport(rep, date);
+      Printer.showPrintPreview(html, `Daily Business Report - ${date}`);
+    } catch (e) {
+      State.showToast(e.message || 'Error generating report printout', 'error');
+    }
   },
 
   // -------------------------------------------------------------

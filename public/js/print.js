@@ -12,12 +12,15 @@ const Printer = {
     email: 'jengakwanzaltd@gmail.com',
     currency: 'TZS',
     currency_symbol: 'TSh',
-    logo_url: 'assets/logo.svg'
+    logo_url: 'assets/logo.jpg'
   },
 
   init(settings = {}) {
     if (settings) {
       this.credentials = { ...this.credentials, ...settings };
+      if (!this.credentials.logo_url) {
+        this.credentials.logo_url = 'assets/logo.jpg';
+      }
     }
   },
 
@@ -32,21 +35,21 @@ const Printer = {
     return isNaN(d.getTime()) ? dateStr : d.toLocaleString();
   },
 
-  // 1. THERMAL POS RECEIPT (80mm)
+  // 1. THERMAL POS RECEIPT (80mm Printable Format)
   renderPosReceipt(order) {
     const cred = this.credentials;
     const items = order.items || [];
-    const cashier = order.cashier_name || 'Cashier';
+    const cashier = order.cashier_name || 'Staff';
     const customer = order.customer_name || 'Walk-in Customer';
 
     let itemsHtml = items.map(item => `
       <tr>
-        <td style="padding: 4px 0; text-align: left;">
-          <div><strong>${this.escape(item.product_name || item.name)}</strong></div>
-          <div style="font-size: 10px; color: #555;">${item.quantity} ${item.unit || 'pcs'} x ${this.formatMoney(item.unit_price)}</div>
+        <td style="padding: 4px 0; text-align: left; vertical-align: top;">
+          <div style="font-weight: bold; font-size: 11.5px; color: #000;">${this.escape(item.product_name || item.name)}</div>
+          <div style="font-size: 10px; color: #333;">${item.quantity} ${item.unit || 'pcs'} @ ${this.formatMoney(item.unit_price)}</div>
         </td>
-        <td style="padding: 4px 0; text-align: right; vertical-align: bottom;">
-          <strong>${this.formatMoney(item.total_price || (item.quantity * item.unit_price))}</strong>
+        <td style="padding: 4px 0; text-align: right; vertical-align: top; font-weight: bold; font-size: 11.5px;">
+          ${this.formatMoney(item.total_price || (item.quantity * item.unit_price))}
         </td>
       </tr>
     `).join('');
@@ -54,28 +57,25 @@ const Printer = {
     return `
       <div class="receipt-paper-80mm">
         <div class="receipt-header">
-          <img src="${cred.logo_url || 'assets/logo.svg'}" class="receipt-logo" alt="JENGAKWANZA Logo" onerror="this.style.display='none'">
-          <h2>${this.escape(cred.company_name)}</h2>
+          <img src="${cred.logo_url || 'assets/logo.jpg'}" class="receipt-logo" alt="${this.escape(cred.company_name)}">
+          <h2 class="receipt-title">${this.escape(cred.company_name)}</h2>
+          <div class="receipt-tagline">${this.escape(cred.tagline || 'Building Excellence & Quality Supplies')}</div>
           <div class="receipt-cred">
-            <strong>Tel:</strong> ${this.escape(cred.phone_numbers)}<br>
-            <strong>${this.escape(cred.address)}</strong><br>
-            <strong>Email:</strong> ${this.escape(cred.email)}
+            <div>${this.escape(cred.address)}</div>
+            <div><strong>Tel:</strong> ${this.escape(cred.phone_numbers)}</div>
+            <div><strong>Email:</strong> ${this.escape(cred.email)}</div>
           </div>
         </div>
 
-        <div class="receipt-divider"></div>
+        <div class="receipt-divider double"></div>
 
-        <div class="receipt-meta-row">
-          <span><strong>RECEIPT #:</strong> ${this.escape(order.order_number)}</span>
-          <span>${this.formatDate(order.created_at)}</span>
-        </div>
-        <div class="receipt-meta-row">
-          <span><strong>Cashier:</strong> ${this.escape(cashier)}</span>
-          <span><strong>Pay Mode:</strong> ${this.escape(order.payment_method || 'CASH')}</span>
-        </div>
-        <div class="receipt-meta-row">
-          <span><strong>Customer:</strong> ${this.escape(customer)}</span>
-          <span>${order.customer_phone ? this.escape(order.customer_phone) : ''}</span>
+        <div class="receipt-meta-grid">
+          <div><span>RECEIPT #:</span> <strong>${this.escape(order.order_number)}</strong></div>
+          <div><span>DATE:</span> <strong>${this.formatDate(order.created_at)}</strong></div>
+          <div><span>CASHIER:</span> <strong>${this.escape(cashier)}</strong></div>
+          <div><span>PAY MODE:</span> <strong>${this.escape(order.payment_method || 'CASH')}</strong></div>
+          <div><span>CUSTOMER:</span> <strong>${this.escape(customer)}</strong></div>
+          ${order.customer_phone ? `<div><span>PHONE:</span> <strong>${this.escape(order.customer_phone)}</strong></div>` : ''}
         </div>
 
         <div class="receipt-divider"></div>
@@ -83,7 +83,7 @@ const Printer = {
         <table class="receipt-items-table">
           <thead>
             <tr>
-              <th style="text-align: left;">ITEM / QTY</th>
+              <th style="text-align: left;">DESCRIPTION / QTY</th>
               <th style="text-align: right;">AMOUNT</th>
             </tr>
           </thead>
@@ -112,7 +112,7 @@ const Printer = {
             </div>
           ` : ''}
           <div class="row grand-total">
-            <span>TOTAL:</span>
+            <span>TOTAL AMOUNT:</span>
             <span>${this.formatMoney(order.total)}</span>
           </div>
           <div class="row" style="margin-top: 4px;">
@@ -127,14 +127,22 @@ const Printer = {
           ` : `
             <div class="row">
               <span>Change Tendered:</span>
-              <span>${this.formatMoney((order.amount_paid || order.total) - order.total)}</span>
+              <span>${this.formatMoney(Math.max(0, (order.amount_paid || order.total) - order.total))}</span>
             </div>
           `}
         </div>
 
+        <div class="receipt-divider"></div>
+
+        <div class="receipt-barcode-box">
+          <div class="simulated-barcode">||| || | | |||| || | || ||||| ||| | |||</div>
+          <div class="barcode-text">*${this.escape(order.order_number)}*</div>
+        </div>
+
         <div class="receipt-footer-text">
-          <p>${this.escape(cred.receipt_footer || 'Thank you for choosing JENGAKWANZA LIMITED!')}</p>
-          <p style="font-size: 9px; margin-top: 4px; color: #666;">Generated by JENGAKWANZA POS System</p>
+          <p><strong>${this.escape(cred.receipt_footer || 'Thank you for choosing JENGAKWANZA LIMITED!')}</strong></p>
+          <p style="font-size: 9.5px; margin-top: 4px; color: #444;">Goods once sold are not returnable without valid receipt.</p>
+          <p style="font-size: 8.5px; margin-top: 3px; color: #777;">Powered by JENGAKWANZA System</p>
         </div>
       </div>
     `;
@@ -154,7 +162,7 @@ const Printer = {
           <strong>${this.escape(item.product_name || item.name)}</strong>
         </td>
         <td style="text-align: center; width: 80px;">${item.unit || 'pcs'}</td>
-        <td style="text-align: center; width: 70px;">${item.quantity}</td>
+        <td style="text-align: center; width: 70px; font-weight: bold;">${item.quantity}</td>
         <td style="text-align: right; width: 110px;">${this.formatMoney(item.unit_price)}</td>
         <td style="text-align: right; width: 120px; font-weight: bold;">${this.formatMoney(item.total_price || (item.quantity * item.unit_price))}</td>
       </tr>
@@ -164,12 +172,15 @@ const Printer = {
       <div class="doc-a4-sheet">
         <div class="doc-header">
           <div class="doc-brand-block">
-            <img src="${cred.logo_url || 'assets/logo.svg'}" alt="JENGAKWANZA" onerror="this.style.display='none'">
+            <img src="${cred.logo_url || 'assets/logo.jpg'}" class="doc-brand-logo" alt="${this.escape(cred.company_name)}">
             <div class="doc-cred-text">
-              <strong>${this.escape(cred.company_name)}</strong><br>
-              ${this.escape(cred.address)}<br>
-              <strong>Tel:</strong> ${this.escape(cred.phone_numbers)}<br>
-              <strong>Email:</strong> ${this.escape(cred.email)}
+              <h2 class="doc-company-title">${this.escape(cred.company_name)}</h2>
+              <div class="doc-company-tagline">${this.escape(cred.tagline || 'Building Excellence & Quality Supplies')}</div>
+              <div class="doc-company-contact">
+                <div>${this.escape(cred.address)}</div>
+                <div><strong>Tel:</strong> ${this.escape(cred.phone_numbers)}</div>
+                <div><strong>Email:</strong> ${this.escape(cred.email)}</div>
+              </div>
             </div>
           </div>
           <div class="doc-type-badge">
@@ -177,7 +188,7 @@ const Printer = {
             <table class="doc-meta-table" style="margin-left: auto;">
               <tr>
                 <td><strong>Doc Number:</strong></td>
-                <td>${this.escape(order.order_number)}</td>
+                <td><strong>${this.escape(order.order_number)}</strong></td>
               </tr>
               <tr>
                 <td><strong>Date:</strong></td>
@@ -322,12 +333,15 @@ const Printer = {
       <div class="doc-a4-sheet">
         <div class="doc-header">
           <div class="doc-brand-block">
-            <img src="${cred.logo_url || 'assets/logo.svg'}" alt="JENGAKWANZA" onerror="this.style.display='none'">
+            <img src="${cred.logo_url || 'assets/logo.jpg'}" class="doc-brand-logo" alt="${this.escape(cred.company_name)}">
             <div class="doc-cred-text">
-              <strong>${this.escape(cred.company_name)}</strong><br>
-              ${this.escape(cred.address)}<br>
-              <strong>Tel:</strong> ${this.escape(cred.phone_numbers)}<br>
-              <strong>Email:</strong> ${this.escape(cred.email)}
+              <h2 class="doc-company-title">${this.escape(cred.company_name)}</h2>
+              <div class="doc-company-tagline">${this.escape(cred.tagline || 'Building Excellence & Quality Supplies')}</div>
+              <div class="doc-company-contact">
+                <div>${this.escape(cred.address)}</div>
+                <div><strong>Tel:</strong> ${this.escape(cred.phone_numbers)}</div>
+                <div><strong>Email:</strong> ${this.escape(cred.email)}</div>
+              </div>
             </div>
           </div>
           <div class="doc-type-badge">
@@ -413,74 +427,76 @@ const Printer = {
     `;
   },
 
-  // 4. DEBTOR PAYMENT RECEIPT
+  // 4. DEBTOR PAYMENT RECEIPT (80mm Thermal Format)
   renderDebtorPaymentReceipt(payment, customer) {
     const cred = this.credentials;
 
     return `
       <div class="receipt-paper-80mm">
         <div class="receipt-header">
-          <img src="${cred.logo_url || 'assets/logo.svg'}" class="receipt-logo" alt="JENGAKWANZA Logo" onerror="this.style.display='none'">
-          <h2>${this.escape(cred.company_name)}</h2>
+          <img src="${cred.logo_url || 'assets/logo.jpg'}" class="receipt-logo" alt="${this.escape(cred.company_name)}">
+          <h2 class="receipt-title">${this.escape(cred.company_name)}</h2>
+          <div class="receipt-tagline">${this.escape(cred.tagline || 'Building Excellence & Quality Supplies')}</div>
           <div class="receipt-cred">
-            <strong>Tel:</strong> ${this.escape(cred.phone_numbers)}<br>
-            <strong>${this.escape(cred.address)}</strong><br>
-            <strong>Email:</strong> ${this.escape(cred.email)}
+            <div>${this.escape(cred.address)}</div>
+            <div><strong>Tel:</strong> ${this.escape(cred.phone_numbers)}</div>
+            <div><strong>Email:</strong> ${this.escape(cred.email)}</div>
           </div>
         </div>
 
-        <div class="receipt-divider"></div>
+        <div class="receipt-divider double"></div>
 
-        <div style="text-align: center; font-weight: bold; font-size: 13px; margin: 4px 0;">
+        <div style="text-align: center; font-weight: 800; font-size: 12px; margin: 4px 0; text-transform: uppercase;">
           OFFICIAL PAYMENT RECEIPT<br>
-          <span style="font-size: 11px; font-weight: normal; color: #555;">(DEBT COLLECTION / CREDIT SETTLEMENT)</span>
+          <span style="font-size: 10px; font-weight: normal; color: #444;">(DEBT COLLECTION / CREDIT SETTLEMENT)</span>
         </div>
 
         <div class="receipt-divider"></div>
 
-        <div class="receipt-meta-row">
-          <span><strong>Receipt #:</strong> ${this.escape(payment.payment_number)}</span>
-          <span>${this.formatDate(payment.payment_date || payment.created_at)}</span>
-        </div>
-        <div class="receipt-meta-row">
-          <span><strong>Received From:</strong> ${this.escape(customer.name)}</span>
-          <span>${customer.phone ? this.escape(customer.phone) : ''}</span>
-        </div>
-        <div class="receipt-meta-row">
-          <span><strong>Payment Mode:</strong> ${this.escape(payment.payment_method)}</span>
-          <span><strong>Officer:</strong> ${this.escape(payment.user_name || 'Cashier')}</span>
+        <div class="receipt-meta-grid">
+          <div><span>RECEIPT #:</span> <strong>${this.escape(payment.payment_number)}</strong></div>
+          <div><span>DATE:</span> <strong>${this.formatDate(payment.payment_date || payment.created_at)}</strong></div>
+          <div><span>RECEIVED FROM:</span> <strong>${this.escape(customer.name)}</strong></div>
+          ${customer.phone ? `<div><span>PHONE:</span> <strong>${this.escape(customer.phone)}</strong></div>` : ''}
+          <div><span>PAY METHOD:</span> <strong>${this.escape(payment.payment_method)}</strong></div>
+          <div><span>OFFICER:</span> <strong>${this.escape(payment.user_name || 'Accounts Desk')}</strong></div>
         </div>
 
         <div class="receipt-divider"></div>
 
-        <div class="receipt-totals" style="margin: 10px 0;">
-          <div class="row grand-total" style="font-size: 15px;">
+        <div class="receipt-totals" style="margin: 8px 0;">
+          <div class="row grand-total">
             <span>AMOUNT PAID:</span>
             <span>${this.formatMoney(payment.amount)}</span>
           </div>
           ${payment.notes ? `
             <div class="row" style="font-size: 11px; margin-top: 6px;">
-              <span>Remarks:</span>
+              <span>Remarks / Ref:</span>
               <span>${this.escape(payment.notes)}</span>
             </div>
           ` : ''}
-          <div class="row" style="font-size: 12px; margin-top: 6px; font-weight: bold; color: #b91c1c;">
-            <span>REMAINING BALANCE:</span>
-            <span>${this.formatMoney(payment.new_credit_balance || customer.current_credit)}</span>
+          <div class="row" style="font-size: 11.5px; margin-top: 6px; font-weight: bold; color: #b91c1c;">
+            <span>REMAINING DEBT:</span>
+            <span>${this.formatMoney(payment.new_credit_balance !== undefined ? payment.new_credit_balance : customer.current_credit)}</span>
           </div>
         </div>
 
         <div class="receipt-divider"></div>
 
+        <div class="receipt-barcode-box">
+          <div class="simulated-barcode">||| || | | |||| || | || ||||| ||| | |||</div>
+          <div class="barcode-text">*${this.escape(payment.payment_number)}*</div>
+        </div>
+
         <div class="receipt-footer-text">
-          <p>Thank you for settling your account with JENGAKWANZA LIMITED!</p>
+          <p><strong>Thank you for settling your account with JENGAKWANZA LIMITED!</strong></p>
           <p style="font-size: 9px; margin-top: 4px; color: #666;">Official Computer-Generated Receipt</p>
         </div>
       </div>
     `;
   },
 
-  // 5. PURCHASE ORDER DOCUMENT
+  // 5. PURCHASE ORDER DOCUMENT (A4 Format)
   renderA4PurchaseOrder(po) {
     const cred = this.credentials;
     const items = po.items || [];
@@ -490,7 +506,7 @@ const Printer = {
         <td style="text-align: center; width: 40px;">${idx + 1}</td>
         <td><strong>${this.escape(item.product_name || item.name)}</strong></td>
         <td style="text-align: center; width: 80px;">${item.unit || 'pcs'}</td>
-        <td style="text-align: center; width: 80px;">${item.quantity_ordered || item.quantity}</td>
+        <td style="text-align: center; width: 80px; font-weight: bold;">${item.quantity_ordered || item.quantity}</td>
         <td style="text-align: right; width: 110px;">${this.formatMoney(item.cost_price)}</td>
         <td style="text-align: right; width: 120px; font-weight: bold;">${this.formatMoney(item.total_price || (item.quantity_ordered * item.cost_price))}</td>
       </tr>
@@ -500,12 +516,15 @@ const Printer = {
       <div class="doc-a4-sheet">
         <div class="doc-header">
           <div class="doc-brand-block">
-            <img src="${cred.logo_url || 'assets/logo.svg'}" alt="JENGAKWANZA" onerror="this.style.display='none'">
+            <img src="${cred.logo_url || 'assets/logo.jpg'}" class="doc-brand-logo" alt="${this.escape(cred.company_name)}">
             <div class="doc-cred-text">
-              <strong>${this.escape(cred.company_name)}</strong><br>
-              ${this.escape(cred.address)}<br>
-              <strong>Tel:</strong> ${this.escape(cred.phone_numbers)}<br>
-              <strong>Email:</strong> ${this.escape(cred.email)}
+              <h2 class="doc-company-title">${this.escape(cred.company_name)}</h2>
+              <div class="doc-company-tagline">${this.escape(cred.tagline || 'Building Excellence & Quality Supplies')}</div>
+              <div class="doc-company-contact">
+                <div>${this.escape(cred.address)}</div>
+                <div><strong>Tel:</strong> ${this.escape(cred.phone_numbers)}</div>
+                <div><strong>Email:</strong> ${this.escape(cred.email)}</div>
+              </div>
             </div>
           </div>
           <div class="doc-type-badge">
@@ -596,6 +615,131 @@ const Printer = {
             <div class="signature-line" style="text-align: right;">
               <strong>Supplier Acceptance & Stamp</strong><br>
               Signature & Date: _________________________
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+  },
+
+  // 6. A4 DAILY FINANCIAL & OPERATIONAL REPORT
+  renderA4DailyReport(rep, date) {
+    const cred = this.credentials;
+    const orders = rep.orders || [];
+    const expenses = rep.expenses || [];
+
+    return `
+      <div class="doc-a4-sheet">
+        <div class="doc-header">
+          <div class="doc-brand-block">
+            <img src="${cred.logo_url || 'assets/logo.jpg'}" class="doc-brand-logo" alt="${this.escape(cred.company_name)}">
+            <div class="doc-cred-text">
+              <h2 class="doc-company-title">${this.escape(cred.company_name)}</h2>
+              <div class="doc-company-tagline">${this.escape(cred.tagline || 'Building Excellence & Quality Supplies')}</div>
+              <div class="doc-company-contact">
+                <div>${this.escape(cred.address)}</div>
+                <div><strong>Tel:</strong> ${this.escape(cred.phone_numbers)}</div>
+                <div><strong>Email:</strong> ${this.escape(cred.email)}</div>
+              </div>
+            </div>
+          </div>
+          <div class="doc-type-badge">
+            <h1 style="color: #0d9488;">DAILY AUDIT REPORT</h1>
+            <table class="doc-meta-table" style="margin-left: auto;">
+              <tr>
+                <td><strong>Report Date:</strong></td>
+                <td><strong>${this.formatDate(date)}</strong></td>
+              </tr>
+              <tr>
+                <td><strong>Generated:</strong></td>
+                <td>${new Date().toLocaleString()}</td>
+              </tr>
+            </table>
+          </div>
+        </div>
+
+        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; margin-bottom: 24px;">
+          <div style="background: #f0fdf4; border: 1px solid #bbf7d0; padding: 12px; border-radius: 6px; text-align: center;">
+            <div style="font-size: 11px; text-transform: uppercase; color: #166534; font-weight: 700;">Total Sales</div>
+            <div style="font-size: 18px; font-weight: 900; color: #15803d; margin-top: 4px;">${this.formatMoney(rep.total_sales || 0)}</div>
+          </div>
+          <div style="background: #fef2f2; border: 1px solid #fecaca; padding: 12px; border-radius: 6px; text-align: center;">
+            <div style="font-size: 11px; text-transform: uppercase; color: #991b1b; font-weight: 700;">Total Expenses</div>
+            <div style="font-size: 18px; font-weight: 900; color: #b91c1c; margin-top: 4px;">${this.formatMoney(rep.total_expenses || 0)}</div>
+          </div>
+          <div style="background: #f8fafc; border: 1px solid #e2e8f0; padding: 12px; border-radius: 6px; text-align: center;">
+            <div style="font-size: 11px; text-transform: uppercase; color: #334155; font-weight: 700;">Daily Net Result</div>
+            <div style="font-size: 18px; font-weight: 900; color: #0f172a; margin-top: 4px;">${this.formatMoney(rep.net_profit || 0)}</div>
+          </div>
+        </div>
+
+        <h3 style="font-size: 13.5px; margin-bottom: 8px; color: #0f172a; text-transform: uppercase; font-weight: 800;">Sales Transactions</h3>
+        <table class="doc-table">
+          <thead>
+            <tr>
+              <th>Time</th>
+              <th>Order #</th>
+              <th>Staff / Cashier</th>
+              <th>Customer</th>
+              <th>Payment Method</th>
+              <th style="text-align: right;">Amount</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${orders.length > 0 ? orders.map(o => `
+              <tr>
+                <td>${new Date(o.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</td>
+                <td><strong>${this.escape(o.order_number)}</strong></td>
+                <td>${this.escape(o.worker_name || 'Staff')}</td>
+                <td>${this.escape(o.customer_name)}</td>
+                <td>${this.escape(o.payment_method)}</td>
+                <td style="text-align: right; font-weight: bold;">${this.formatMoney(o.total)}</td>
+              </tr>
+            `).join('') : `
+              <tr>
+                <td colspan="6" style="text-align: center; color: #64748b; padding: 16px;">No sales transactions recorded on this date.</td>
+              </tr>
+            `}
+          </tbody>
+        </table>
+
+        ${expenses.length > 0 ? `
+          <h3 style="font-size: 13.5px; margin: 18px 0 8px; color: #0f172a; text-transform: uppercase; font-weight: 800;">Daily Expenses</h3>
+          <table class="doc-table">
+            <thead>
+              <tr>
+                <th>Voucher #</th>
+                <th>Category</th>
+                <th>Description</th>
+                <th>Payment Source</th>
+                <th style="text-align: right;">Amount</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${expenses.map(e => `
+                <tr>
+                  <td><strong>${this.escape(e.voucher_number || '-')}</strong></td>
+                  <td>${this.escape(e.category)}</td>
+                  <td>${this.escape(e.description)}</td>
+                  <td>${this.escape(e.payment_source)}</td>
+                  <td style="text-align: right; font-weight: bold; color: #b91c1c;">${this.formatMoney(e.amount)}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+        ` : ''}
+
+        <div class="doc-signature-block">
+          <div>
+            <div class="signature-line">
+              <strong>Prepared By (Duty Officer / Cashier)</strong><br>
+              Signature & Date: _________________________
+            </div>
+          </div>
+          <div>
+            <div class="signature-line" style="text-align: right;">
+              <strong>Approved By (Management / Auditor)</strong><br>
+              Signature & Official Stamp: _________________________
             </div>
           </div>
         </div>
