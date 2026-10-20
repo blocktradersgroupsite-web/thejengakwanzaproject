@@ -1,0 +1,3471 @@
+// JENGAKWANZA Business Management System Main Application Logic
+// Complete implementation with NO dummy data
+
+const App = {
+  productsCache: [],
+  customersCache: [],
+  suppliersCache: [],
+
+  async init() {
+    try {
+      // 1. Fetch System Settings
+      const settingsRes = await API.getSettings();
+      if (settingsRes && settingsRes.settings) {
+        State.setSettings(settingsRes.settings);
+      }
+    } catch (e) {
+      console.warn('Initial settings load warning:', e);
+    }
+
+    // 2. Check Authentication
+    if (!State.currentUser) {
+      this.showLoginModal();
+    } else {
+      this.checkShiftStatus();
+      this.renderApp();
+    }
+  },
+
+  // -------------------------------------------------------------
+  // AUTHENTICATION & WORKER SESSIONS
+  // -------------------------------------------------------------
+  showLoginModal() {
+    const modal = document.getElementById('login-modal');
+    if (modal) {
+      modal.classList.add('active');
+      document.getElementById('login-username').focus();
+    }
+  },
+
+  async handleLogin(e) {
+    e.preventDefault();
+    const uInput = document.getElementById('login-username');
+    const pInput = document.getElementById('login-password');
+    const username = uInput.value.trim();
+    const password = pInput.value.trim();
+
+    if (!username || !password) {
+      State.showToast('Please enter both username and password', 'error');
+      return;
+    }
+
+    try {
+      const res = await API.login(username, password);
+      if (res && res.success && res.user) {
+        State.setUser(res.user);
+        document.getElementById('login-modal').classList.remove('active');
+        State.showToast(`Welcome back, ${res.user.full_name}!`, 'success');
+        await this.checkShiftStatus();
+        this.renderApp();
+      }
+    } catch (err) {
+      State.showToast(err.message || 'Login failed. Please check credentials.', 'error');
+    }
+  },
+
+  handleLogout() {
+    if (confirm('Are you sure you want to log out of JENGAKWANZA?')) {
+      State.setUser(null);
+      location.reload();
+    }
+  },
+
+  async checkShiftStatus() {
+    if (!State.currentUser) return;
+    try {
+      const today = new Date().toISOString().split('T')[0];
+      const res = await API.getShifts(today);
+      if (res && res.shifts) {
+        const myActive = res.shifts.find(s => s.user_id == State.currentUser.id && !s.clock_out);
+        State.activeShift = myActive || null;
+      }
+    } catch (e) {
+      console.warn('Shift check error:', e);
+    }
+    this.updateShiftUI();
+  },
+
+  updateShiftUI() {
+    const dot = document.getElementById('header-shift-dot');
+    const label = document.getElementById('header-shift-text');
+    const btn = document.getElementById('header-shift-btn');
+
+    if (!dot || !label || !btn) return;
+
+    if (State.activeShift) {
+      dot.className = 'status-dot active';
+      label.textContent = `On Duty (Since ${new Date(State.activeShift.clock_in).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })})`;
+      btn.textContent = 'Clock Out';
+      btn.className = 'btn btn-sm btn-danger';
+      btn.onclick = () => App.showClockOutModal();
+    } else {
+      dot.className = 'status-dot inactive';
+      label.textContent = 'Off Duty';
+      btn.textContent = 'Clock In Today';
+      btn.className = 'btn btn-sm btn-success';
+      btn.onclick = () => App.showClockInModal();
+    }
+
+    // Update User Profile in sidebar
+    const nameEl = document.getElementById('sidebar-user-name');
+    const roleEl = document.getElementById('sidebar-user-role');
+    const avatarEl = document.getElementById('sidebar-user-avatar');
+    if (State.currentUser && nameEl && roleEl) {
+      nameEl.textContent = State.currentUser.full_name;
+      roleEl.textContent = `${State.currentUser.role} • ${State.currentUser.username}`;
+      if (avatarEl) avatarEl.textContent = State.currentUser.full_name.charAt(0).toUpperCase();
+    }
+
+    // Restrict Admin-only views if user is not Admin
+    const adminItems = document.querySelectorAll('.admin-only');
+    const isAdmin = State.currentUser?.role === 'Admin' || State.currentUser?.role === 'Manager';
+    adminItems.forEach(el => {
+      el.style.display = isAdmin ? 'flex' : 'none';
+    });
+  },
+
+  showClockInModal() {
+    const modal = document.getElementById('clock-modal');
+    document.getElementById('clock-modal-title').textContent = 'Clock In for Today';
+    document.getElementById('clock-modal-body').innerHTML = `
+      <form id="clock-in-form" onsubmit="App.submitClockIn(event)">
+        <div class="form-group">
+          <label class="form-label">Worker Name</label>
+          <input type="text" class="form-input" value="${State.currentUser.full_name} (${State.currentUser.role})" disabled>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Opening Cash in Drawer (${State.settings.currency_symbol || 'TSh'})</label>
+          <input type="number" id="clock-opening-cash" class="form-input" step="any" value="0.00" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Shift Notes / Comments</label>
+          <input type="text" id="clock-notes" class="form-input" placeholder="e.g. Morning Shift, POS counter 1">
+        </div>
+        <button type="submit" class="btn btn-primary" style="width: 100%;">Confirm Clock In</button>
+      </form>
+    `;
+    modal.classList.add('active');
+  },
+
+  async submitClockIn(e) {
+    e.preventDefault();
+    const openingCash = parseFloat(document.getElementById('clock-opening-cash').value) || 0;
+    const notes = document.getElementById('clock-notes').value.trim();
+
+    try {
+      const res = await API.clockIn({
+        user_id: State.currentUser.id,
+        work_date: new Date().toISOString().split('T')[0],
+        opening_cash: openingCash,
+        notes: notes
+      });
+      if (res && res.success) {
+        State.showToast('You are clocked in. Shift active!', 'success');
+        document.getElementById('clock-modal').classList.remove('active');
+        await this.checkShiftStatus();
+      }
+    } catch (err) {
+      State.showToast(err.message, 'error');
+    }
+  },
+
+  showClockOutModal() {
+    const modal = document.getElementById('clock-modal');
+    document.getElementById('clock-modal-title').textContent = 'Clock Out & Close Shift';
+    document.getElementById('clock-modal-body').innerHTML = `
+      <form id="clock-out-form" onsubmit="App.submitClockOut(event)">
+        <div class="form-group">
+          <label class="form-label">Worker Name</label>
+          <input type="text" class="form-input" value="${State.currentUser.full_name}" disabled>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Closing Cash Handed Over (${State.settings.currency_symbol || 'TSh'})</label>
+          <input type="number" id="clock-closing-cash" class="form-input" step="any" placeholder="Total cash in hand" required>
+        </div>
+        <div class="form-group">
+          <label class="form-label">End of Shift Notes / Handover</label>
+          <input type="text" id="clock-out-notes" class="form-input" placeholder="e.g. Balanced drawer, handed over to evening cashier">
+        </div>
+        <button type="submit" class="btn btn-danger" style="width: 100%;">Confirm Clock Out</button>
+      </form>
+    `;
+    modal.classList.add('active');
+  },
+
+  async submitClockOut(e) {
+    e.preventDefault();
+    const closingCash = parseFloat(document.getElementById('clock-closing-cash').value) || 0;
+    const notes = document.getElementById('clock-out-notes').value.trim();
+
+    try {
+      const res = await API.clockOut({
+        user_id: State.currentUser.id,
+        shift_id: State.activeShift?.id,
+        closing_cash: closingCash,
+        notes: notes
+      });
+      if (res && res.success) {
+        State.showToast('Clocked out successfully. Have a great day!', 'info');
+        document.getElementById('clock-modal').classList.remove('active');
+        State.activeShift = null;
+        this.updateShiftUI();
+      }
+    } catch (err) {
+      State.showToast(err.message, 'error');
+    }
+  },
+
+  // -------------------------------------------------------------
+  // ROUTING & VIEW NAVIGATION
+  // -------------------------------------------------------------
+  navigate(route) {
+    State.currentRoute = route;
+
+    // Update active nav link
+    document.querySelectorAll('.nav-item').forEach(el => {
+      if (el.dataset.route === route) {
+        el.classList.add('active');
+      } else {
+        el.classList.remove('active');
+      }
+    });
+
+    const titleEl = document.getElementById('page-title');
+    const subEl = document.getElementById('page-subtitle');
+    const container = document.getElementById('content-area');
+
+    switch (route) {
+      case 'dashboard':
+        titleEl.textContent = 'Dashboard & Business Overview';
+        subEl.textContent = 'Live financial metrics, active workers, capital, and quick actions';
+        this.renderDashboard(container);
+        break;
+      case 'pos':
+        titleEl.textContent = 'Point of Sale (POS)';
+        subEl.textContent = 'Fast checkout, thermal receipt printing, cash and mobile money';
+        this.renderPOS(container);
+        break;
+      case 'invoices':
+        titleEl.textContent = 'Sales Invoices';
+        subEl.textContent = 'Commercial tax invoices, customer billing, payment status';
+        this.renderInvoices(container);
+        break;
+      case 'proforma':
+        titleEl.textContent = 'Proforma Invoices (Quotations)';
+        subEl.textContent = 'Generate quotations, customer pricing, convert to invoice with 1 click';
+        this.renderProforma(container);
+        break;
+      case 'delivery-notes':
+        titleEl.textContent = 'Delivery Notes';
+        subEl.textContent = 'Dispatch tracking, transporters, customer destination and signatures';
+        this.renderDeliveryNotes(container);
+        break;
+      case 'inventory':
+        titleEl.textContent = 'Inventory & Stock Management';
+        subEl.textContent = 'Real-time stock on hand, valuation, restock, and movement audit log';
+        this.renderInventory(container);
+        break;
+      case 'debtors':
+        titleEl.textContent = 'Customers & Debtors Ledger';
+        subEl.textContent = 'Track customer debt, credit sales, record debt repayments and receipts';
+        this.renderDebtors(container);
+        break;
+      case 'suppliers':
+        titleEl.textContent = 'Suppliers & Purchase Orders (POs)';
+        subEl.textContent = 'Vendor directory, issue POs, and receive stock into warehouse';
+        this.renderSuppliers(container);
+        break;
+      case 'expenses':
+        titleEl.textContent = 'Daily Business Expenses';
+        subEl.textContent = 'Track daily operational costs, rent, transport, wages, and utilities';
+        this.renderExpenses(container);
+        break;
+      case 'capital':
+        titleEl.textContent = 'Capital Available & Financial Health';
+        subEl.textContent = 'Cash in register, bank, mobile money, and total net business capital';
+        this.renderCapital(container);
+        break;
+      case 'workers':
+        titleEl.textContent = 'Admin: Workers & Daily Shift Logs';
+        subEl.textContent = 'Worker directory, assign roles, and see who was working on any specific day';
+        this.renderWorkers(container);
+        break;
+      case 'reports':
+        titleEl.textContent = 'Daily Sales & Financial Reports';
+        subEl.textContent = 'Audit sales by worker, daily profit & loss, and transaction history';
+        this.renderReports(container);
+        break;
+      case 'settings':
+        titleEl.textContent = 'Company Profile & System Settings';
+        subEl.textContent = 'Business credentials, logo, thermal printer format, and backup';
+        this.renderSettings(container);
+        break;
+      default:
+        this.renderDashboard(container);
+    }
+  },
+
+  renderApp() {
+    this.updateShiftUI();
+    this.navigate(State.currentRoute || 'dashboard');
+  },
+
+  // -------------------------------------------------------------
+  // 1. DASHBOARD VIEW
+  // -------------------------------------------------------------
+  async renderDashboard(container) {
+    container.innerHTML = `<div style="text-align: center; padding: 40px;"><div class="spinner"></div> Loading Dashboard...</div>`;
+    try {
+      const res = await API.getDashboardReport();
+      const d = res.dashboard || {};
+
+      container.innerHTML = `
+        <!-- Top Metrics Cards -->
+        <div class="metrics-grid">
+          <div class="metric-card">
+            <div class="metric-data">
+              <h4>Available Capital (Liquid)</h4>
+              <div class="metric-value" style="color: var(--primary);">${State.formatMoney(d.capital_available)}</div>
+              <div class="metric-sub">Cash: ${State.formatMoney(d.cash_in_hand)} • Bank/Mobile: ${State.formatMoney(d.bank_balance + d.mobile_balance)}</div>
+            </div>
+            <div class="metric-icon teal">
+              <svg width="24" height="24" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+            </div>
+          </div>
+
+          <div class="metric-card">
+            <div class="metric-data">
+              <h4>Today's Sales</h4>
+              <div class="metric-value" style="color: var(--success);">${State.formatMoney(d.today_sales)}</div>
+              <div class="metric-sub">${d.today_orders_count || 0} completed transactions today</div>
+            </div>
+            <div class="metric-icon green">
+              <svg width="24" height="24" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z"></path></svg>
+            </div>
+          </div>
+
+          <div class="metric-card">
+            <div class="metric-data">
+              <h4>Today's Expenses</h4>
+              <div class="metric-value" style="color: var(--danger);">${State.formatMoney(d.today_expenses)}</div>
+              <div class="metric-sub">Net Today: ${State.formatMoney(d.net_today)}</div>
+            </div>
+            <div class="metric-icon red">
+              <svg width="24" height="24" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+            </div>
+          </div>
+
+          <div class="metric-card">
+            <div class="metric-data">
+              <h4>Uncollected Debtors</h4>
+              <div class="metric-value" style="color: #b45309;">${State.formatMoney(d.debtors_total)}</div>
+              <div class="metric-sub">Accounts Receivable</div>
+            </div>
+            <div class="metric-icon amber">
+              <svg width="24" height="24" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 14l6-6m-5.5.5h.01m4.99 5h.01M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16l3.5-2 3.5 2 3.5-2 3.5 2zM10 8.5a.5.5 0 11-1 0 .5.5 0 011 0zm5 5a.5.5 0 11-1 0 .5.5 0 011 0z"></path></svg>
+            </div>
+          </div>
+
+          <div class="metric-card">
+            <div class="metric-data">
+              <h4>Active Workers Today</h4>
+              <div class="metric-value" style="color: var(--secondary);">${d.active_workers_count} On Duty</div>
+              <div class="metric-sub"><a href="javascript:void(0)" onclick="App.navigate('workers')" style="color: var(--secondary); text-decoration: underline;">View shift roster</a></div>
+            </div>
+            <div class="metric-icon blue">
+              <svg width="24" height="24" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>
+            </div>
+          </div>
+
+          <div class="metric-card">
+            <div class="metric-data">
+              <h4>Stock Alerts</h4>
+              <div class="metric-value" style="color: ${d.low_stock_count > 0 ? 'var(--danger)' : '#475569'};">${d.low_stock_count} Low Items</div>
+              <div class="metric-sub"><a href="javascript:void(0)" onclick="App.navigate('inventory')" style="color: var(--primary); text-decoration: underline;">Check inventory</a></div>
+            </div>
+            <div class="metric-icon purple">
+              <svg width="24" height="24" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"></path></svg>
+            </div>
+          </div>
+        </div>
+
+        <!-- Quick Launch Action Bar -->
+        <div class="card" style="margin-bottom: 24px; padding: 16px 20px;">
+          <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;">
+            <div style="font-weight: 700; font-size: 15px; color: var(--text-main);">
+              Quick Business Actions
+            </div>
+            <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+              <button class="btn btn-primary" onclick="App.navigate('pos')">
+                <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
+                New POS Sale
+              </button>
+              <button class="btn btn-secondary" onclick="App.navigate('invoices')">
+                New Invoice
+              </button>
+              <button class="btn btn-secondary" onclick="App.navigate('proforma')">
+                New Proforma
+              </button>
+              <button class="btn btn-secondary" onclick="App.navigate('delivery-notes')">
+                New Delivery Note
+              </button>
+              <button class="btn btn-secondary" onclick="App.navigate('expenses')">
+                Record Expense
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Recent Transactions Grid -->
+        <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 20px;">
+          <div class="card">
+            <div class="card-header">
+              <h3 class="card-title">Recent Sales & Invoices</h3>
+              <button class="btn btn-sm btn-secondary" onclick="App.navigate('invoices')">View All</button>
+            </div>
+            <div id="dashboard-recent-orders">Loading recent sales...</div>
+          </div>
+
+          <div class="card">
+            <div class="card-header">
+              <h3 class="card-title">Today's Staff On Duty</h3>
+              <button class="btn btn-sm btn-secondary" onclick="App.navigate('workers')">Shift Details</button>
+            </div>
+            <div id="dashboard-shift-list">Loading shifts...</div>
+          </div>
+        </div>
+      `;
+
+      // Load Recent Orders
+      const ordRes = await API.getOrders();
+      const recentOrders = (ordRes.orders || []).slice(0, 6);
+      const ordersContainer = document.getElementById('dashboard-recent-orders');
+
+      if (recentOrders.length === 0) {
+        ordersContainer.innerHTML = `
+          <div class="empty-state">
+            <p>No transactions yet. Start by adding products in Inventory and making your first sale in POS!</p>
+            <button class="btn btn-sm btn-primary" onclick="App.navigate('pos')">Open POS Terminal</button>
+          </div>
+        `;
+      } else {
+        ordersContainer.innerHTML = `
+          <div class="table-container">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Order #</th>
+                  <th>Customer</th>
+                  <th>Type</th>
+                  <th>Amount</th>
+                  <th>Status</th>
+                  <th>Action</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${recentOrders.map(o => `
+                  <tr>
+                    <td><strong>${o.order_number}</strong></td>
+                    <td>${o.customer_name}</td>
+                    <td><span class="badge ${o.order_type === 'POS' ? 'badge-info' : 'badge-neutral'}">${o.order_type}</span></td>
+                    <td><strong>${State.formatMoney(o.total)}</strong></td>
+                    <td><span class="badge ${o.payment_status === 'PAID' ? 'badge-success' : 'badge-danger'}">${o.payment_status}</span></td>
+                    <td>
+                      <button class="btn btn-sm btn-secondary" onclick="App.viewAndPrintOrder(${o.id}, '${o.order_type}')">
+                        Print
+                      </button>
+                    </td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
+        `;
+      }
+
+      // Load Shifts on Duty Today
+      const today = new Date().toISOString().split('T')[0];
+      const shiftRes = await API.getShifts(today);
+      const shifts = shiftRes.shifts || [];
+      const shiftContainer = document.getElementById('dashboard-shift-list');
+
+      if (shifts.length === 0) {
+        shiftContainer.innerHTML = `
+          <div class="empty-state" style="padding: 24px 10px;">
+            <p>No workers clocked in yet today.</p>
+            <button class="btn btn-sm btn-primary" onclick="App.showClockInModal()">Clock In Now</button>
+          </div>
+        `;
+      } else {
+        shiftContainer.innerHTML = `
+          <div style="display: flex; flex-direction: column; gap: 8px;">
+            ${shifts.map(s => `
+              <div style="display: flex; align-items: center; justify-content: space-between; padding: 10px; background: #f8fafc; border: 1px solid var(--border); border-radius: 6px;">
+                <div>
+                  <div style="font-weight: 600; font-size: 13px;">${s.worker_name}</div>
+                  <div style="font-size: 11px; color: var(--text-muted);">${s.worker_role} • In: ${new Date(s.clock_in).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</div>
+                </div>
+                <div>
+                  <span class="badge ${s.clock_out ? 'badge-neutral' : 'badge-success'}">
+                    ${s.clock_out ? 'Signed Out' : 'Active On Duty'}
+                  </span>
+                </div>
+              </div>
+            `).join('')}
+          </div>
+        `;
+      }
+
+    } catch (e) {
+      container.innerHTML = `<div class="card" style="color: var(--danger);">Failed to load dashboard: ${e.message}</div>`;
+    }
+  },
+
+  // -------------------------------------------------------------
+  // 2. POINT OF SALE (POS)
+  // -------------------------------------------------------------
+  async renderPOS(container) {
+    container.innerHTML = `
+      <div class="pos-container">
+        <!-- Products Grid Panel -->
+        <div class="pos-products-panel">
+          <div class="pos-search-bar">
+            <input type="text" id="pos-search-input" class="form-input" placeholder="Search product by name, SKU or barcode..." oninput="App.filterPOSProducts()">
+            <select id="pos-category-filter" class="form-select" style="max-width: 170px;" onchange="App.filterPOSProducts()">
+              <option value="">All Categories</option>
+            </select>
+            <button class="btn btn-secondary" onclick="App.showNewProductModal()">+ Add Product</button>
+          </div>
+          <div id="pos-products-list" class="pos-product-grid">
+            <div style="grid-column: 1/-1; text-align: center; padding: 40px;">Loading inventory products...</div>
+          </div>
+        </div>
+
+        <!-- POS Cart Panel -->
+        <div class="pos-cart-panel">
+          <div class="pos-cart-header">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
+              <h3 style="font-size: 15px; font-weight: 700;">Current Cart</h3>
+              <button class="btn btn-sm btn-secondary" onclick="App.clearCartConfirm()">Clear</button>
+            </div>
+            <!-- Customer Picker -->
+            <div style="display: flex; gap: 8px;">
+              <select id="pos-customer-select" class="form-select" onchange="App.onPOSCustomerSelect(this.value)">
+                <option value="">Walk-in Customer</option>
+              </select>
+              <button class="btn btn-sm btn-secondary" title="Add Customer" onclick="App.showNewCustomerModal()">+</button>
+            </div>
+            <div id="pos-customer-credit-alert" style="display: none; margin-top: 6px; font-size: 11.5px; color: #b45309; background: #fef3c7; padding: 4px 8px; border-radius: 4px;"></div>
+          </div>
+
+          <div id="pos-cart-items" class="pos-cart-items">
+            <!-- Cart items dynamically inserted here -->
+          </div>
+
+          <div class="pos-cart-summary">
+            <div class="summary-row">
+              <span>Subtotal:</span>
+              <span id="pos-subtotal">TSh 0</span>
+            </div>
+            <div class="summary-row" style="align-items: center;">
+              <span>Discount (${State.settings.currency_symbol || 'TSh'}):</span>
+              <input type="number" id="pos-discount" class="form-input" style="width: 100px; padding: 2px 6px; text-align: right; height: 26px;" value="0" min="0" oninput="App.updatePOSSummary()">
+            </div>
+            <div class="summary-row total">
+              <span>Total Payable:</span>
+              <span id="pos-total-amount" style="color: var(--primary);">TSh 0</span>
+            </div>
+
+            <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; margin-top: 12px;">
+              <button class="btn btn-secondary" onclick="App.saveAsProformaFromPOS()">Save as Proforma</button>
+              <button class="btn btn-primary" id="pos-pay-btn" onclick="App.showPOSPaymentModal()" style="font-size: 15px;">Pay & Print Receipt</button>
+            </div>
+          </div>
+        </div>
+      </div>
+    `;
+
+    // Fetch products & customers
+    try {
+      const [pRes, cRes] = await Promise.all([API.getProducts(), API.getCustomers()]);
+      this.productsCache = pRes.products || [];
+      this.customersCache = cRes.customers || [];
+
+      // Populate category filter
+      const catSelect = document.getElementById('pos-category-filter');
+      const cats = Array.from(new Set(this.productsCache.map(p => p.category).filter(Boolean)));
+      cats.forEach(c => {
+        const opt = document.createElement('option');
+        opt.value = c;
+        opt.textContent = c;
+        catSelect.appendChild(opt);
+      });
+
+      // Populate customer select
+      const custSelect = document.getElementById('pos-customer-select');
+      this.customersCache.forEach(c => {
+        const opt = document.createElement('option');
+        opt.value = c.id;
+        opt.textContent = `${c.name} (${c.phone || 'No phone'})`;
+        custSelect.appendChild(opt);
+      });
+
+      this.filterPOSProducts();
+      this.renderCartUI();
+    } catch (e) {
+      console.error(e);
+    }
+  },
+
+  filterPOSProducts() {
+    const query = (document.getElementById('pos-search-input')?.value || '').toLowerCase();
+    const category = document.getElementById('pos-category-filter')?.value || '';
+    const container = document.getElementById('pos-products-list');
+    if (!container) return;
+
+    const filtered = this.productsCache.filter(p => {
+      const matchesQ = p.name.toLowerCase().includes(query) || (p.sku && p.sku.toLowerCase().includes(query)) || (p.barcode && p.barcode.toLowerCase().includes(query));
+      const matchesC = !category || p.category === category;
+      return matchesQ && matchesC;
+    });
+
+    if (filtered.length === 0) {
+      container.innerHTML = `
+        <div class="empty-state" style="grid-column: 1/-1;">
+          <h3>No products found</h3>
+          <p>Add products to your inventory to start selling at the POS terminal.</p>
+          <button class="btn btn-primary" onclick="App.showNewProductModal()">+ Add New Product</button>
+        </div>
+      `;
+      return;
+    }
+
+    container.innerHTML = filtered.map(p => {
+      const isLow = p.stock_quantity <= p.min_alert_quantity;
+      return `
+        <div class="pos-product-card" onclick="App.addProductToPOSCart(${p.id})">
+          <div>
+            <div class="pos-product-name">${p.name}</div>
+            <div class="pos-product-sku">${p.sku || ''} • ${p.category || 'General'}</div>
+          </div>
+          <div class="pos-product-meta">
+            <div class="pos-product-price">${State.formatMoney(p.selling_price)}</div>
+            <div class="pos-product-stock ${isLow ? 'low' : ''}">${p.stock_quantity} ${p.unit || 'pcs'}</div>
+          </div>
+        </div>
+      `;
+    }).join('');
+  },
+
+  addProductToPOSCart(productId) {
+    const prod = this.productsCache.find(p => p.id === productId);
+    if (!prod) return;
+    State.addToCart(prod, 1);
+    this.renderCartUI();
+  },
+
+  renderCartUI() {
+    const container = document.getElementById('pos-cart-items');
+    if (!container) return;
+
+    if (State.cart.length === 0) {
+      container.innerHTML = `
+        <div class="empty-state" style="padding: 40px 10px;">
+          <p>Cart is empty.<br>Click items on the left to add them to this sale.</p>
+        </div>
+      `;
+      this.updatePOSSummary();
+      return;
+    }
+
+    container.innerHTML = State.cart.map(item => `
+      <div class="pos-cart-item">
+        <div class="cart-item-info">
+          <div class="cart-item-title">${item.product_name}</div>
+          <div class="cart-item-price">${State.formatMoney(item.unit_price)} / ${item.unit}</div>
+        </div>
+        <div class="cart-item-controls">
+          <button class="qty-btn" onclick="App.adjustCartItemQty(${item.product_id}, -1)">-</button>
+          <input type="number" class="qty-input" value="${item.quantity}" min="0.1" step="any" onchange="App.setCartItemQty(${item.product_id}, this.value)">
+          <button class="qty-btn" onclick="App.adjustCartItemQty(${item.product_id}, 1)">+</button>
+          <div style="font-weight: 700; min-width: 70px; text-align: right; font-size: 13px;">${State.formatMoney(item.total_price)}</div>
+          <button style="background: none; border: none; color: var(--danger); cursor: pointer; padding: 2px 6px;" onclick="App.removeCartItem(${item.product_id})">✕</button>
+        </div>
+      </div>
+    `).join('');
+
+    this.updatePOSSummary();
+  },
+
+  adjustCartItemQty(productId, delta) {
+    const item = State.cart.find(i => i.product_id === productId);
+    if (item) {
+      const newQty = item.quantity + delta;
+      if (newQty <= 0) {
+        State.removeFromCart(productId);
+      } else {
+        State.updateCartQty(productId, newQty);
+      }
+      this.renderCartUI();
+    }
+  },
+
+  setCartItemQty(productId, val) {
+    const qty = parseFloat(val);
+    if (isNaN(qty) || qty <= 0) {
+      State.removeFromCart(productId);
+    } else {
+      State.updateCartQty(productId, qty);
+    }
+    this.renderCartUI();
+  },
+
+  removeCartItem(productId) {
+    State.removeFromCart(productId);
+    this.renderCartUI();
+  },
+
+  clearCartConfirm() {
+    if (State.cart.length > 0 && confirm('Are you sure you want to clear the cart?')) {
+      State.clearCart();
+      this.renderCartUI();
+    }
+  },
+
+  onPOSCustomerSelect(customerId) {
+    const alertBox = document.getElementById('pos-customer-credit-alert');
+    if (!customerId) {
+      State.cartCustomer = null;
+      if (alertBox) alertBox.style.display = 'none';
+      return;
+    }
+
+    const cust = this.customersCache.find(c => c.id == customerId);
+    State.cartCustomer = cust || null;
+
+    if (alertBox && cust) {
+      if (cust.current_credit > 0) {
+        alertBox.style.display = 'block';
+        alertBox.innerHTML = `⚠️ <strong>Debtor Warning:</strong> This customer currently owes <strong>${State.formatMoney(cust.current_credit)}</strong>.`;
+      } else {
+        alertBox.style.display = 'none';
+      }
+    }
+  },
+
+  updatePOSSummary() {
+    const subtotal = State.getCartSubtotal();
+    const discount = parseFloat(document.getElementById('pos-discount')?.value || 0) || 0;
+    const total = Math.max(0, subtotal - discount);
+
+    const subtotalEl = document.getElementById('pos-subtotal');
+    const totalEl = document.getElementById('pos-total-amount');
+
+    if (subtotalEl) subtotalEl.textContent = State.formatMoney(subtotal);
+    if (totalEl) totalEl.textContent = State.formatMoney(total);
+  },
+
+  showPOSPaymentModal() {
+    if (State.cart.length === 0) {
+      State.showToast('Cart is empty. Add products first.', 'error');
+      return;
+    }
+
+    const subtotal = State.getCartSubtotal();
+    const discount = parseFloat(document.getElementById('pos-discount')?.value || 0) || 0;
+    const total = Math.max(0, subtotal - discount);
+
+    const modal = document.getElementById('general-modal');
+    document.getElementById('general-modal-title').textContent = 'Complete Payment & Checkout';
+    document.getElementById('general-modal-body').innerHTML = `
+      <form id="pos-checkout-form" onsubmit="App.submitPOSCheckout(event, ${subtotal}, ${discount}, ${total})">
+        <div style="background: #f8fafc; padding: 14px; border-radius: 6px; border: 1px solid var(--border); margin-bottom: 16px; text-align: center;">
+          <div style="font-size: 12px; color: var(--text-muted); text-transform: uppercase;">Total Amount Due</div>
+          <div style="font-size: 28px; font-weight: 800; color: var(--primary);">${State.formatMoney(total)}</div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Payment Method</label>
+          <select id="checkout-payment-method" class="form-select" onchange="App.onPaymentMethodChange(this.value, ${total})">
+            <option value="CASH">Cash in Drawer</option>
+            <option value="MPESA">M-Pesa</option>
+            <option value="TIGO_PESA">Tigo Pesa</option>
+            <option value="AIRTEL_MONEY">Airtel Money</option>
+            <option value="BANK">Bank Transfer / CRDB / NMB</option>
+            <option value="CREDIT">On Credit (Debtor Account)</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Amount Tendered / Paid</label>
+          <input type="number" id="checkout-amount-paid" class="form-input" step="any" value="${total}" oninput="App.calculatePOSChange(${total})" required>
+        </div>
+
+        <div id="checkout-change-row" style="display: flex; justify-content: space-between; padding: 8px 12px; background: #f1f5f9; border-radius: 4px; margin-bottom: 16px; font-size: 13px;">
+          <span>Change to Return:</span>
+          <strong id="checkout-change-amount" style="color: var(--success);">${State.formatMoney(0)}</strong>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Order Notes / Reference (Optional)</label>
+          <input type="text" id="checkout-notes" class="form-input" placeholder="e.g. M-Pesa ref code, customer memo">
+        </div>
+
+        <button type="submit" class="btn btn-primary btn-lg" style="width: 100%;">Confirm & Print Receipt</button>
+      </form>
+    `;
+    modal.classList.add('active');
+  },
+
+  onPaymentMethodChange(method, total) {
+    const amountInput = document.getElementById('checkout-amount-paid');
+    const changeRow = document.getElementById('checkout-change-row');
+    if (method === 'CREDIT') {
+      if (!State.cartCustomer) {
+        State.showToast('Please select a registered customer to sell on credit', 'error');
+        document.getElementById('checkout-payment-method').value = 'CASH';
+        return;
+      }
+      amountInput.value = 0;
+      if (changeRow) changeRow.style.display = 'none';
+    } else {
+      amountInput.value = total;
+      if (changeRow) changeRow.style.display = 'flex';
+      this.calculatePOSChange(total);
+    }
+  },
+
+  calculatePOSChange(total) {
+    const paid = parseFloat(document.getElementById('checkout-amount-paid')?.value || 0) || 0;
+    const change = Math.max(0, paid - total);
+    const changeEl = document.getElementById('checkout-change-amount');
+    if (changeEl) changeEl.textContent = State.formatMoney(change);
+  },
+
+  async submitPOSCheckout(e, subtotal, discount, total) {
+    e.preventDefault();
+    const payMethod = document.getElementById('checkout-payment-method').value;
+    const amountPaid = parseFloat(document.getElementById('checkout-amount-paid').value) || 0;
+    const notes = document.getElementById('checkout-notes').value.trim();
+
+    const orderData = {
+      order_type: 'POS',
+      user_id: State.currentUser ? State.currentUser.id : 1,
+      customer_id: State.cartCustomer ? State.cartCustomer.id : null,
+      customer_name: State.cartCustomer ? State.cartCustomer.name : 'Walk-in Customer',
+      customer_phone: State.cartCustomer ? State.cartCustomer.phone : null,
+      subtotal: subtotal,
+      discount: discount,
+      tax: 0,
+      total: total,
+      payment_method: payMethod,
+      amount_paid: amountPaid,
+      notes: notes,
+      items: State.cart
+    };
+
+    try {
+      const res = await API.createOrder(orderData);
+      if (res && res.success) {
+        document.getElementById('general-modal').classList.remove('active');
+        State.showToast('Sale completed successfully!', 'success');
+
+        // Prepare order object for instant thermal receipt
+        const receiptOrder = {
+          ...orderData,
+          order_number: res.order_number,
+          id: res.order_id,
+          cashier_name: State.currentUser?.full_name || 'Cashier',
+          created_at: new Date().toISOString(),
+          balance_due: res.balance_due
+        };
+
+        // Clear cart
+        State.clearCart();
+        this.renderCartUI();
+
+        // Trigger Receipt Print Preview
+        const receiptHtml = Printer.renderPosReceipt(receiptOrder);
+        Printer.showPrintPreview(receiptHtml, `POS Receipt - ${res.order_number}`);
+      }
+    } catch (err) {
+      State.showToast(err.message, 'error');
+    }
+  },
+
+  async saveAsProformaFromPOS() {
+    if (State.cart.length === 0) {
+      State.showToast('Cart is empty. Add products first.', 'error');
+      return;
+    }
+    const subtotal = State.getCartSubtotal();
+    const discount = parseFloat(document.getElementById('pos-discount')?.value || 0) || 0;
+    const total = Math.max(0, subtotal - discount);
+
+    const proformaData = {
+      order_type: 'PROFORMA',
+      user_id: State.currentUser ? State.currentUser.id : 1,
+      customer_id: State.cartCustomer ? State.cartCustomer.id : null,
+      customer_name: State.cartCustomer ? State.cartCustomer.name : 'Client Quote',
+      customer_phone: State.cartCustomer ? State.cartCustomer.phone : null,
+      subtotal: subtotal,
+      discount: discount,
+      tax: 0,
+      total: total,
+      payment_method: 'CASH',
+      amount_paid: 0,
+      notes: 'Proforma quote created from POS terminal',
+      items: State.cart
+    };
+
+    try {
+      const res = await API.createOrder(proformaData);
+      if (res && res.success) {
+        State.showToast('Proforma Invoice saved successfully!', 'success');
+        State.clearCart();
+        this.renderCartUI();
+        this.navigate('proforma');
+      }
+    } catch (err) {
+      State.showToast(err.message, 'error');
+    }
+  },
+
+  // -------------------------------------------------------------
+  // 3. INVOICES & PROFORMA & DELIVERY NOTES
+  // -------------------------------------------------------------
+  async renderInvoices(container) {
+    container.innerHTML = `<div style="text-align: center; padding: 40px;"><div class="spinner"></div> Loading Invoices...</div>`;
+    try {
+      const res = await API.getOrders('INVOICE');
+      const invoices = res.orders || [];
+
+      container.innerHTML = `
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <h3 class="card-title">Commercial Sales Invoices</h3>
+              <p style="font-size: 12px; color: var(--text-muted);">Manage official customer invoices and payment settlements</p>
+            </div>
+            <button class="btn btn-primary" onclick="App.showNewInvoiceModal()">+ Create New Invoice</button>
+          </div>
+
+          ${invoices.length === 0 ? `
+            <div class="empty-state">
+              <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+              <h3>No Invoices Yet</h3>
+              <p>Create official invoices for your clients and track payment receipts.</p>
+              <button class="btn btn-primary" onclick="App.showNewInvoiceModal()">Create First Invoice</button>
+            </div>
+          ` : `
+            <div class="table-container">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Invoice #</th>
+                    <th>Date</th>
+                    <th>Client / Customer</th>
+                    <th>Subtotal</th>
+                    <th>Total</th>
+                    <th>Paid</th>
+                    <th>Balance Due</th>
+                    <th>Status</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${invoices.map(inv => `
+                    <tr>
+                      <td><strong>${inv.order_number}</strong></td>
+                      <td>${State.formatDate(inv.created_at)}</td>
+                      <td><strong>${inv.customer_name}</strong></td>
+                      <td>${State.formatMoney(inv.subtotal)}</td>
+                      <td><strong>${State.formatMoney(inv.total)}</strong></td>
+                      <td style="color: var(--success);">${State.formatMoney(inv.amount_paid)}</td>
+                      <td style="color: ${inv.balance_due > 0 ? 'var(--danger)' : 'inherit'}; font-weight: bold;">
+                        ${State.formatMoney(inv.balance_due)}
+                      </td>
+                      <td>
+                        <span class="badge ${inv.payment_status === 'PAID' ? 'badge-success' : (inv.payment_status === 'PARTIAL' ? 'badge-warning' : 'badge-danger')}">
+                          ${inv.payment_status}
+                        </span>
+                      </td>
+                      <td>
+                        <div style="display: flex; gap: 6px;">
+                          <button class="btn btn-sm btn-secondary" onclick="App.viewAndPrintOrder(${inv.id}, 'INVOICE')">
+                            Print A4
+                          </button>
+                          <button class="btn btn-sm btn-secondary" onclick="App.showDeliveryNoteModalFromInvoice(${inv.id})">
+                            Delivery Note
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+              </table>
+            </div>
+          `}
+        </div>
+      `;
+    } catch (e) {
+      container.innerHTML = `<div class="card" style="color: var(--danger);">Error loading invoices: ${e.message}</div>`;
+    }
+  },
+
+  async renderProforma(container) {
+    container.innerHTML = `<div style="text-align: center; padding: 40px;"><div class="spinner"></div> Loading Proforma Invoices...</div>`;
+    try {
+      const res = await API.getOrders('PROFORMA');
+      const proformas = res.orders || [];
+
+      container.innerHTML = `
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <h3 class="card-title">Proforma Invoices & Quotations</h3>
+              <p style="font-size: 12px; color: var(--text-muted);">Issue price quotations to prospective clients. Convert to sale upon confirmation.</p>
+            </div>
+            <button class="btn btn-primary" onclick="App.showNewInvoiceModal(true)">+ Create Proforma Invoice</button>
+          </div>
+
+          ${proformas.length === 0 ? `
+            <div class="empty-state">
+              <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"></path></svg>
+              <h3>No Proforma Invoices</h3>
+              <p>Issue quotation sheets to customers with 14-day validity terms.</p>
+              <button class="btn btn-primary" onclick="App.showNewInvoiceModal(true)">Create First Proforma</button>
+            </div>
+          ` : `
+            <div class="table-container">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Proforma #</th>
+                    <th>Date</th>
+                    <th>Customer Name</th>
+                    <th>Total Quote</th>
+                    <th>Validity</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${proformas.map(p => `
+                    <tr>
+                      <td><strong>${p.order_number}</strong></td>
+                      <td>${State.formatDate(p.created_at)}</td>
+                      <td><strong>${p.customer_name}</strong></td>
+                      <td><strong>${State.formatMoney(p.total)}</strong></td>
+                      <td>14 Days from date</td>
+                      <td>
+                        <div style="display: flex; gap: 6px;">
+                          <button class="btn btn-sm btn-secondary" onclick="App.viewAndPrintOrder(${p.id}, 'PROFORMA')">
+                            Print Proforma
+                          </button>
+                          <button class="btn btn-sm btn-primary" onclick="App.convertProformaAction(${p.id})">
+                            Convert to Invoice
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+              </table>
+            </div>
+          `}
+        </div>
+      `;
+    } catch (e) {
+      container.innerHTML = `<div class="card" style="color: var(--danger);">Error loading proformas: ${e.message}</div>`;
+    }
+  },
+
+  async convertProformaAction(proformaId) {
+    if (confirm('Convert this Proforma Invoice to a confirmed Sales Invoice? This will deduct the inventory items from stock.')) {
+      try {
+        const res = await API.convertProforma(proformaId, 'INVOICE', State.currentUser?.id);
+        if (res && res.success) {
+          State.showToast('Proforma converted to Invoice successfully!', 'success');
+          this.navigate('invoices');
+        }
+      } catch (err) {
+        State.showToast(err.message, 'error');
+      }
+    }
+  },
+
+  async renderDeliveryNotes(container) {
+    container.innerHTML = `<div style="text-align: center; padding: 40px;"><div class="spinner"></div> Loading Delivery Notes...</div>`;
+    try {
+      const res = await API.getDeliveryNotes();
+      const dns = res.delivery_notes || [];
+
+      container.innerHTML = `
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <h3 class="card-title">Delivery Notes & Dispatch Records</h3>
+              <p style="font-size: 12px; color: var(--text-muted);">Manage goods delivery, transporter details, recipient signatures</p>
+            </div>
+            <button class="btn btn-primary" onclick="App.showStandaloneDeliveryNoteModal()">+ Create Delivery Note</button>
+          </div>
+
+          ${dns.length === 0 ? `
+            <div class="empty-state">
+              <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16V6a1 1 0 00-1-1H4a1 1 0 00-1 1v10a1 1 0 001 1h1m8-1a1 1 0 01-1 1H9m4-1V8a1 1 0 011-1h2.586a1 1 0 01.707.293l3.414 3.414a1 1 0 01.293.707V16a1 1 0 01-1 1h-1m-6-1a1 1 0 001 1h1M5 17a2 2 0 104 0m-4 0a2 2 0 114 0m6 0a2 2 0 104 0m-4 0a2 2 0 114 0"></path></svg>
+              <h3>No Delivery Notes Yet</h3>
+              <p>Generate delivery notes with transport and recipient acknowledgement lines.</p>
+              <button class="btn btn-primary" onclick="App.showStandaloneDeliveryNoteModal()">Create Delivery Note</button>
+            </div>
+          ` : `
+            <div class="table-container">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>DN Number</th>
+                    <th>Date</th>
+                    <th>Customer / Destination</th>
+                    <th>Transporter / Vehicle</th>
+                    <th>Dispatched By</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${dns.map(dn => `
+                    <tr>
+                      <td><strong>${dn.delivery_number}</strong></td>
+                      <td>${State.formatDate(dn.delivery_date || dn.created_at)}</td>
+                      <td>
+                        <strong>${dn.customer_name}</strong><br>
+                        <span style="font-size: 11px; color: var(--text-muted);">${dn.delivery_address}</span>
+                      </td>
+                      <td>${dn.transporter_name || 'Direct'} • ${dn.vehicle_number || 'N/A'}</td>
+                      <td>${dn.dispatched_by_name || 'Staff'}</td>
+                      <td>
+                        <button class="btn btn-sm btn-secondary" onclick="App.viewAndPrintDeliveryNote(${JSON.stringify(dn).replace(/"/g, '&quot;')})">
+                          Print Note
+                        </button>
+                      </td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+              </table>
+            </div>
+          `}
+        </div>
+      `;
+    } catch (e) {
+      container.innerHTML = `<div class="card" style="color: var(--danger);">Error loading delivery notes: ${e.message}</div>`;
+    }
+  },
+
+  async viewAndPrintOrder(orderId, type) {
+    try {
+      const res = await API.getOrder(orderId);
+      if (res && res.order) {
+        const order = res.order;
+        if (type === 'POS') {
+          const html = Printer.renderPosReceipt(order);
+          Printer.showPrintPreview(html, `POS Receipt - ${order.order_number}`);
+        } else if (type === 'PROFORMA') {
+          const html = Printer.renderA4Invoice(order, true);
+          Printer.showPrintPreview(html, `Proforma Invoice - ${order.order_number}`);
+        } else {
+          const html = Printer.renderA4Invoice(order, false);
+          Printer.showPrintPreview(html, `Commercial Invoice - ${order.order_number}`);
+        }
+      }
+    } catch (e) {
+      State.showToast(e.message, 'error');
+    }
+  },
+
+  viewAndPrintDeliveryNote(dn) {
+    const html = Printer.renderA4DeliveryNote(dn);
+    Printer.showPrintPreview(html, `Delivery Note - ${dn.delivery_number}`);
+  },
+
+  // -------------------------------------------------------------
+  // 4. INVENTORY & STOCK MANAGEMENT
+  // -------------------------------------------------------------
+  async renderInventory(container) {
+    container.innerHTML = `<div style="text-align: center; padding: 40px;"><div class="spinner"></div> Loading Stock & Inventory...</div>`;
+    try {
+      const [pRes, capRes] = await Promise.all([API.getProducts(), API.getCapital()]);
+      const products = pRes.products || [];
+      const cap = capRes.capital || {};
+
+      container.innerHTML = `
+        <!-- Inventory Valuation Metrics -->
+        <div class="metrics-grid">
+          <div class="metric-card">
+            <div class="metric-data">
+              <h4>Total Stock Asset Value (Cost)</h4>
+              <div class="metric-value" style="color: var(--primary);">${State.formatMoney(cap.stock_cost_valuation)}</div>
+              <div class="metric-sub">Capital invested in physical stock</div>
+            </div>
+            <div class="metric-icon teal">
+              <svg width="24" height="24" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"></path></svg>
+            </div>
+          </div>
+
+          <div class="metric-card">
+            <div class="metric-data">
+              <h4>Estimated Retail Valuation</h4>
+              <div class="metric-value" style="color: var(--secondary);">${State.formatMoney(cap.stock_retail_valuation)}</div>
+              <div class="metric-sub">Total value at selling price</div>
+            </div>
+            <div class="metric-icon blue">
+              <svg width="24" height="24" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+            </div>
+          </div>
+
+          <div class="metric-card">
+            <div class="metric-data">
+              <h4>Product Catalog Count</h4>
+              <div class="metric-value">${products.length} Products</div>
+              <div class="metric-sub">${products.filter(p => p.stock_quantity <= p.min_alert_quantity).length} low stock warnings</div>
+            </div>
+            <div class="metric-icon purple">
+              <svg width="24" height="24" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 10h16M4 14h16M4 18h16"></path></svg>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <h3 class="card-title">Stock Available & Products</h3>
+              <p style="font-size: 12px; color: var(--text-muted);">Real-time inventory levels, buying costs, and selling prices</p>
+            </div>
+            <div style="display: flex; gap: 10px;">
+              <button class="btn btn-secondary" onclick="App.showStockMovementsModal()">Stock Movement History</button>
+              <button class="btn btn-primary" onclick="App.showNewProductModal()">+ Add New Product</button>
+            </div>
+          </div>
+
+          <!-- Product Filters -->
+          <div style="display: flex; gap: 12px; margin-bottom: 16px; flex-wrap: wrap;">
+            <input type="text" id="inventory-search" class="form-input" placeholder="Search by name, SKU or barcode..." style="max-width: 320px;" oninput="App.filterInventoryTable()">
+            <select id="inventory-stock-filter" class="form-select" style="max-width: 200px;" onchange="App.filterInventoryTable()">
+              <option value="ALL">All Stock Levels</option>
+              <option value="LOW">Low Stock Alerts Only</option>
+              <option value="OUT">Out of Stock Only</option>
+            </select>
+          </div>
+
+          ${products.length === 0 ? `
+            <div class="empty-state">
+              <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"></path></svg>
+              <h3>Inventory is currently empty</h3>
+              <p>Add your actual products, materials, or supplies to start tracking stock quantities and sales.</p>
+              <button class="btn btn-primary" onclick="App.showNewProductModal()">+ Add Your First Product</button>
+            </div>
+          ` : `
+            <div class="table-container">
+              <table class="data-table" id="inventory-table">
+                <thead>
+                  <tr>
+                    <th>SKU / Code</th>
+                    <th>Product / Material Name</th>
+                    <th>Category</th>
+                    <th>Stock on Hand</th>
+                    <th>Unit</th>
+                    <th>Buying Cost</th>
+                    <th>Selling Price</th>
+                    <th>Stock Value (Cost)</th>
+                    <th>Status</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody id="inventory-tbody">
+                  ${this.renderInventoryRows(products)}
+                </tbody>
+              </table>
+            </div>
+          `}
+        </div>
+      `;
+      this.productsCache = products;
+    } catch (e) {
+      container.innerHTML = `<div class="card" style="color: var(--danger);">Error loading inventory: ${e.message}</div>`;
+    }
+  },
+
+  renderInventoryRows(products) {
+    return products.map(p => {
+      const isLow = p.stock_quantity <= p.min_alert_quantity;
+      const isOut = p.stock_quantity <= 0;
+      return `
+        <tr>
+          <td><code>${p.sku || 'N/A'}</code></td>
+          <td><strong>${p.name}</strong></td>
+          <td>${p.category || 'General'}</td>
+          <td style="font-size: 14px; font-weight: bold; color: ${isOut ? 'var(--danger)' : (isLow ? '#d97706' : 'var(--text-main)')};">
+            ${p.stock_quantity}
+          </td>
+          <td>${p.unit || 'pcs'}</td>
+          <td>${State.formatMoney(p.cost_price)}</td>
+          <td><strong>${State.formatMoney(p.selling_price)}</strong></td>
+          <td><strong>${State.formatMoney(p.cost_price * p.stock_quantity)}</strong></td>
+          <td>
+            <span class="badge ${isOut ? 'badge-danger' : (isLow ? 'badge-warning' : 'badge-success')}">
+              ${isOut ? 'Out of Stock' : (isLow ? 'Low Stock Alert' : 'In Stock')}
+            </span>
+          </td>
+          <td>
+            <div style="display: flex; gap: 6px;">
+              <button class="btn btn-sm btn-secondary" title="Restock or Adjust" onclick="App.showStockAdjustModal(${p.id})">
+                Adjust
+              </button>
+              <button class="btn btn-sm btn-secondary" title="Edit Product" onclick="App.showEditProductModal(${p.id})">
+                Edit
+              </button>
+            </div>
+          </td>
+        </tr>
+      `;
+    }).join('');
+  },
+
+  filterInventoryTable() {
+    const q = (document.getElementById('inventory-search')?.value || '').toLowerCase();
+    const filter = document.getElementById('inventory-stock-filter')?.value || 'ALL';
+
+    const filtered = this.productsCache.filter(p => {
+      const matchesQ = p.name.toLowerCase().includes(q) || (p.sku && p.sku.toLowerCase().includes(q)) || (p.category && p.category.toLowerCase().includes(q));
+      let matchesF = true;
+      if (filter === 'LOW') matchesF = p.stock_quantity <= p.min_alert_quantity;
+      if (filter === 'OUT') matchesF = p.stock_quantity <= 0;
+      return matchesQ && matchesF;
+    });
+
+    const tbody = document.getElementById('inventory-tbody');
+    if (tbody) tbody.innerHTML = this.renderInventoryRows(filtered);
+  },
+
+  showStockAdjustModal(productId) {
+    const p = this.productsCache.find(x => x.id === productId);
+    if (!p) return;
+
+    const modal = document.getElementById('general-modal');
+    document.getElementById('general-modal-title').textContent = `Adjust Stock for: ${p.name}`;
+    document.getElementById('general-modal-body').innerHTML = `
+      <form id="stock-adjust-form" onsubmit="App.submitStockAdjust(event, ${p.id})">
+        <div style="background: #f8fafc; padding: 12px; border-radius: 6px; border: 1px solid var(--border); margin-bottom: 14px;">
+          <div>Current Stock: <strong>${p.stock_quantity} ${p.unit}</strong></div>
+          <div>Buying Cost: <strong>${State.formatMoney(p.cost_price)}</strong></div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Adjustment Type</label>
+          <select id="adjust-type" class="form-select" required>
+            <option value="RESTOCK">Restock / Received New Goods (+)</option>
+            <option value="RETURN">Customer Return (+)</option>
+            <option value="DAMAGED">Damaged / Expired / Loss (-)</option>
+            <option value="ADJUSTMENT">Inventory Audit Adjustment (+/-)</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Quantity</label>
+          <input type="number" id="adjust-qty" class="form-input" step="any" placeholder="Enter quantity" required>
+          <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">Enter positive number for additions, or negative for write-offs</div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Unit Cost Price (${State.settings.currency_symbol || 'TSh'})</label>
+          <input type="number" id="adjust-cost" class="form-input" step="any" value="${p.cost_price}">
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Notes / Reason</label>
+          <input type="text" id="adjust-notes" class="form-input" placeholder="e.g. Stock delivery invoice #554, annual count">
+        </div>
+
+        <button type="submit" class="btn btn-primary" style="width: 100%;">Save Stock Adjustment</button>
+      </form>
+    `;
+    modal.classList.add('active');
+  },
+
+  async submitStockAdjust(e, productId) {
+    e.preventDefault();
+    const type = document.getElementById('adjust-type').value;
+    let qty = parseFloat(document.getElementById('adjust-qty').value) || 0;
+    const cost = parseFloat(document.getElementById('adjust-cost').value) || 0;
+    const notes = document.getElementById('adjust-notes').value.trim();
+
+    if (type === 'DAMAGED' && qty > 0) {
+      qty = -qty; // Deduct for damaged
+    }
+
+    try {
+      const res = await API.adjustStock({
+        product_id: productId,
+        movement_type: type,
+        quantity: qty,
+        unit_cost: cost,
+        user_id: State.currentUser?.id,
+        notes: notes
+      });
+      if (res && res.success) {
+        State.showToast('Stock updated successfully', 'success');
+        document.getElementById('general-modal').classList.remove('active');
+        this.renderInventory(document.getElementById('content-area'));
+      }
+    } catch (err) {
+      State.showToast(err.message, 'error');
+    }
+  },
+
+  async showStockMovementsModal() {
+    const modal = document.getElementById('general-modal');
+    document.getElementById('general-modal-title').textContent = 'Stock Movement & Audit Trail';
+    document.getElementById('general-modal-body').innerHTML = `<div style="text-align: center; padding: 30px;">Loading audit movements...</div>`;
+    modal.classList.add('active');
+
+    try {
+      const res = await API.getStockMovements(80);
+      const mvs = res.movements || [];
+
+      document.getElementById('general-modal-body').innerHTML = `
+        ${mvs.length === 0 ? `
+          <div class="empty-state">No stock movements logged yet.</div>
+        ` : `
+          <div class="table-container">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Timestamp</th>
+                  <th>Product</th>
+                  <th>Type</th>
+                  <th>Quantity</th>
+                  <th>Balance After</th>
+                  <th>Logged By</th>
+                  <th>Notes</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${mvs.map(m => `
+                  <tr>
+                    <td>${State.formatDateTime(m.created_at)}</td>
+                    <td><strong>${m.product_name}</strong></td>
+                    <td><span class="badge ${m.quantity > 0 ? 'badge-success' : 'badge-danger'}">${m.movement_type}</span></td>
+                    <td style="font-weight: bold; color: ${m.quantity > 0 ? 'var(--success)' : 'var(--danger)'};">
+                      ${m.quantity > 0 ? `+${m.quantity}` : m.quantity} ${m.product_unit || 'pcs'}
+                    </td>
+                    <td><strong>${m.balance_after}</strong></td>
+                    <td>${m.user_name || 'System'}</td>
+                    <td>${m.notes || ''}</td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
+        `}
+      `;
+    } catch (e) {
+      document.getElementById('general-modal-body').innerHTML = `<div style="color: var(--danger);">${e.message}</div>`;
+    }
+  },
+
+  // -------------------------------------------------------------
+  // 5. CUSTOMERS & DEBTORS (CREDIT SALES TRACKING)
+  // -------------------------------------------------------------
+  async renderDebtors(container) {
+    container.innerHTML = `<div style="text-align: center; padding: 40px;"><div class="spinner"></div> Loading Debtors & Customers...</div>`;
+    try {
+      const [cRes, dRes] = await Promise.all([API.getCustomers(), API.getDebtors()]);
+      const customers = cRes.customers || [];
+      const debtors = dRes.debtors || [];
+      const totalDebt = debtors.reduce((sum, d) => sum + (parseFloat(d.current_credit) || 0), 0);
+
+      container.innerHTML = `
+        <!-- Debtors Overview Card -->
+        <div class="metrics-grid">
+          <div class="metric-card">
+            <div class="metric-data">
+              <h4>Total Outstanding Debt (Receivables)</h4>
+              <div class="metric-value" style="color: var(--danger);">${State.formatMoney(totalDebt)}</div>
+              <div class="metric-sub">${debtors.length} customers with unpaid credit</div>
+            </div>
+            <div class="metric-icon red">
+              <svg width="24" height="24" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+            </div>
+          </div>
+
+          <div class="metric-card">
+            <div class="metric-data">
+              <h4>Total Registered Customers</h4>
+              <div class="metric-value">${customers.length} Clients</div>
+              <div class="metric-sub">Commercial and retail client base</div>
+            </div>
+            <div class="metric-icon blue">
+              <svg width="24" height="24" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>
+            </div>
+          </div>
+        </div>
+
+        <!-- Debtors Table -->
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <h3 class="card-title" style="color: #991b1b;">⚠️ Debtors Ledger (Owing JENGAKWANZA)</h3>
+              <p style="font-size: 12px; color: var(--text-muted);">List of all customers who purchased on credit and owe balance</p>
+            </div>
+          </div>
+
+          ${debtors.length === 0 ? `
+            <div class="empty-state" style="padding: 24px;">
+              <p>🎉 Excellent! No outstanding debtor balances at the moment.</p>
+            </div>
+          ` : `
+            <div class="table-container">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Customer Name</th>
+                    <th>Phone</th>
+                    <th>Address</th>
+                    <th>Credit Limit</th>
+                    <th>Current Debt Owed</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${debtors.map(d => `
+                    <tr>
+                      <td><strong>${d.name}</strong></td>
+                      <td>${d.phone || 'N/A'}</td>
+                      <td>${d.address || 'Arusha'}</td>
+                      <td>${State.formatMoney(d.credit_limit)}</td>
+                      <td style="color: var(--danger); font-size: 14px; font-weight: bold;">
+                        ${State.formatMoney(d.current_credit)}
+                      </td>
+                      <td>
+                        <button class="btn btn-sm btn-success" onclick="App.showDebtPaymentModal(${d.id})">
+                          Collect Payment
+                        </button>
+                      </td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+              </table>
+            </div>
+          `}
+        </div>
+
+        <!-- All Customers Directory -->
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <h3 class="card-title">Customer Directory</h3>
+              <p style="font-size: 12px; color: var(--text-muted);">Manage client accounts, credit limits and contact info</p>
+            </div>
+            <button class="btn btn-primary" onclick="App.showNewCustomerModal()">+ Add New Customer</button>
+          </div>
+
+          ${customers.length === 0 ? `
+            <div class="empty-state">
+              <h3>No customers added yet</h3>
+              <p>Add your regular clients and business debtors to manage invoices and credit limits.</p>
+              <button class="btn btn-primary" onclick="App.showNewCustomerModal()">+ Add Customer</button>
+            </div>
+          ` : `
+            <div class="table-container">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Name</th>
+                    <th>Phone</th>
+                    <th>Email</th>
+                    <th>Address</th>
+                    <th>Credit Limit</th>
+                    <th>Current Balance</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${customers.map(c => `
+                    <tr>
+                      <td><strong>${c.name}</strong></td>
+                      <td>${c.phone || '-'}</td>
+                      <td>${c.email || '-'}</td>
+                      <td>${c.address || '-'}</td>
+                      <td>${State.formatMoney(c.credit_limit)}</td>
+                      <td style="font-weight: bold; color: ${c.current_credit > 0 ? 'var(--danger)' : 'var(--success)'};">
+                        ${State.formatMoney(c.current_credit)}
+                      </td>
+                      <td>
+                        <div style="display: flex; gap: 6px;">
+                          ${c.current_credit > 0 ? `
+                            <button class="btn btn-sm btn-success" onclick="App.showDebtPaymentModal(${c.id})">
+                              Pay
+                            </button>
+                          ` : ''}
+                          <button class="btn btn-sm btn-secondary" onclick="App.showEditCustomerModal(${c.id})">
+                            Edit
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+              </table>
+            </div>
+          `}
+        </div>
+      `;
+      this.customersCache = customers;
+    } catch (e) {
+      container.innerHTML = `<div class="card" style="color: var(--danger);">Error loading debtors: ${e.message}</div>`;
+    }
+  },
+
+  showDebtPaymentModal(customerId) {
+    const cust = this.customersCache.find(c => c.id === customerId);
+    if (!cust) return;
+
+    const modal = document.getElementById('general-modal');
+    document.getElementById('general-modal-title').textContent = `Record Debt Repayment: ${cust.name}`;
+    document.getElementById('general-modal-body').innerHTML = `
+      <form id="debt-payment-form" onsubmit="App.submitDebtPayment(event, ${cust.id})">
+        <div style="background: #fef2f2; border: 1px solid #fee2e2; padding: 12px; border-radius: 6px; margin-bottom: 14px;">
+          <div>Customer: <strong>${cust.name}</strong></div>
+          <div style="font-size: 14px; margin-top: 4px;">Outstanding Balance: <strong style="color: var(--danger);">${State.formatMoney(cust.current_credit)}</strong></div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Repayment Amount (${State.settings.currency_symbol || 'TSh'})</label>
+          <input type="number" id="pay-amount" class="form-input" step="any" max="${cust.current_credit}" value="${cust.current_credit}" required>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Payment Received In</label>
+          <select id="pay-method" class="form-select" required>
+            <option value="CASH">Cash in Hand / Drawer</option>
+            <option value="MPESA">M-Pesa</option>
+            <option value="TIGO_PESA">Tigo Pesa</option>
+            <option value="BANK">Bank Deposit / CRDB / NMB</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Payment Date</label>
+          <input type="date" id="pay-date" class="form-input" value="${new Date().toISOString().split('T')[0]}" required>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Receipt Remarks / Transaction Ref</label>
+          <input type="text" id="pay-notes" class="form-input" placeholder="e.g. M-Pesa transaction ID, bank slip #">
+        </div>
+
+        <button type="submit" class="btn btn-success" style="width: 100%;">Record Repayment & Print Receipt</button>
+      </form>
+    `;
+    modal.classList.add('active');
+  },
+
+  async submitDebtPayment(e, customerId) {
+    e.preventDefault();
+    const cust = this.customersCache.find(c => c.id === customerId);
+    const amount = parseFloat(document.getElementById('pay-amount').value) || 0;
+    const method = document.getElementById('pay-method').value;
+    const date = document.getElementById('pay-date').value;
+    const notes = document.getElementById('pay-notes').value.trim();
+
+    try {
+      const res = await API.payDebtor({
+        customer_id: customerId,
+        amount: amount,
+        payment_method: method,
+        payment_date: date,
+        notes: notes,
+        user_id: State.currentUser?.id
+      });
+      if (res && res.success) {
+        State.showToast(`Payment of ${State.formatMoney(amount)} recorded!`, 'success');
+        document.getElementById('general-modal').classList.remove('active');
+
+        // Print official debt payment receipt with company logo & credentials
+        const receiptPayment = {
+          payment_number: res.payment_number,
+          amount: amount,
+          payment_method: method,
+          payment_date: date,
+          notes: notes,
+          new_credit_balance: res.new_credit_balance,
+          user_name: State.currentUser?.full_name || 'Accounts Desk'
+        };
+
+        const receiptHtml = Printer.renderDebtorPaymentReceipt(receiptPayment, cust);
+        Printer.showPrintPreview(receiptHtml, `Payment Receipt - ${res.payment_number}`);
+
+        this.renderDebtors(document.getElementById('content-area'));
+      }
+    } catch (err) {
+      State.showToast(err.message, 'error');
+    }
+  },
+
+  // -------------------------------------------------------------
+  // 6. SUPPLIERS & PURCHASE ORDERS (POs)
+  // -------------------------------------------------------------
+  async renderSuppliers(container) {
+    container.innerHTML = `<div style="text-align: center; padding: 40px;"><div class="spinner"></div> Loading Suppliers & POs...</div>`;
+    try {
+      const [sRes, poRes] = await Promise.all([API.getSuppliers(), API.getPurchaseOrders()]);
+      const suppliers = sRes.suppliers || [];
+      const pos = poRes.purchase_orders || [];
+
+      container.innerHTML = `
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <h3 class="card-title">Purchase Orders (POs)</h3>
+              <p style="font-size: 12px; color: var(--text-muted);">Issue orders to suppliers and automatically update warehouse stock on receipt</p>
+            </div>
+            <button class="btn btn-primary" onclick="App.showNewPOModal()">+ Create Purchase Order</button>
+          </div>
+
+          ${pos.length === 0 ? `
+            <div class="empty-state">
+              <h3>No Purchase Orders yet</h3>
+              <p>Issue purchase orders to suppliers for stock restocking and track delivery status.</p>
+              <button class="btn btn-primary" onclick="App.showNewPOModal()">Create First PO</button>
+            </div>
+          ` : `
+            <div class="table-container">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>PO Number</th>
+                    <th>Date</th>
+                    <th>Supplier</th>
+                    <th>Total Amount</th>
+                    <th>Status</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${pos.map(po => `
+                    <tr>
+                      <td><strong>${po.po_number}</strong></td>
+                      <td>${State.formatDate(po.created_at)}</td>
+                      <td><strong>${po.supplier_name}</strong></td>
+                      <td><strong>${State.formatMoney(po.total_amount)}</strong></td>
+                      <td>
+                        <span class="badge ${po.status === 'RECEIVED' ? 'badge-success' : (po.status === 'APPROVED' ? 'badge-info' : 'badge-warning')}">
+                          ${po.status}
+                        </span>
+                      </td>
+                      <td>
+                        <div style="display: flex; gap: 6px;">
+                          <button class="btn btn-sm btn-secondary" onclick="App.viewAndPrintPO(${po.id})">
+                            Print PO
+                          </button>
+                          ${po.status !== 'RECEIVED' ? `
+                            <button class="btn btn-sm btn-success" onclick="App.receivePOStock(${po.id})">
+                              Receive Stock
+                            </button>
+                          ` : ''}
+                        </div>
+                      </td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+              </table>
+            </div>
+          `}
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <h3 class="card-title">Suppliers Directory</h3>
+              <p style="font-size: 12px; color: var(--text-muted);">Vendors and manufacturers for building supplies and materials</p>
+            </div>
+            <button class="btn btn-secondary" onclick="App.showNewSupplierModal()">+ Add Supplier</button>
+          </div>
+
+          ${suppliers.length === 0 ? `
+            <div class="empty-state">
+              <p>No suppliers added yet.</p>
+              <button class="btn btn-primary" onclick="App.showNewSupplierModal()">+ Add Supplier</button>
+            </div>
+          ` : `
+            <div class="table-container">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Supplier Name</th>
+                    <th>Contact Person</th>
+                    <th>Phone</th>
+                    <th>Email</th>
+                    <th>Address</th>
+                    <th>Actions</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${suppliers.map(s => `
+                    <tr>
+                      <td><strong>${s.name}</strong></td>
+                      <td>${s.contact_person || '-'}</td>
+                      <td>${s.phone || '-'}</td>
+                      <td>${s.email || '-'}</td>
+                      <td>${s.address || '-'}</td>
+                      <td>
+                        <button class="btn btn-sm btn-secondary" onclick="App.showEditSupplierModal(${s.id})">Edit</button>
+                      </td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+              </table>
+            </div>
+          `}
+        </div>
+      `;
+      this.suppliersCache = suppliers;
+    } catch (e) {
+      container.innerHTML = `<div class="card" style="color: var(--danger);">Error loading suppliers: ${e.message}</div>`;
+    }
+  },
+
+  async viewAndPrintPO(poId) {
+    try {
+      const res = await API.getPurchaseOrders();
+      const po = (res.purchase_orders || []).find(p => p.id === poId);
+      if (po) {
+        const html = Printer.renderA4PurchaseOrder(po);
+        Printer.showPrintPreview(html, `Purchase Order - ${po.po_number}`);
+      }
+    } catch (e) {
+      State.showToast(e.message, 'error');
+    }
+  },
+
+  async receivePOStock(poId) {
+    if (confirm('Receive this Purchase Order into warehouse? This will automatically increase physical stock and update product buying cost.')) {
+      try {
+        const res = await API.receivePurchaseOrder(poId, State.currentUser?.id);
+        if (res && res.success) {
+          State.showToast('PO received! Inventory successfully updated.', 'success');
+          this.renderSuppliers(document.getElementById('content-area'));
+        }
+      } catch (err) {
+        State.showToast(err.message, 'error');
+      }
+    }
+  },
+
+  // -------------------------------------------------------------
+  // 7. DAILY BUSINESS EXPENSES
+  // -------------------------------------------------------------
+  async renderExpenses(container) {
+    container.innerHTML = `<div style="text-align: center; padding: 40px;"><div class="spinner"></div> Loading Expenses...</div>`;
+    const today = new Date().toISOString().split('T')[0];
+
+    try {
+      const res = await API.getExpenses();
+      const expenses = res.expenses || [];
+      const todayTotal = expenses.filter(e => e.expense_date === today).reduce((sum, e) => sum + (parseFloat(e.amount) || 0), 0);
+      const overallTotal = expenses.reduce((sum, e) => sum + (parseFloat(e.amount) || 0), 0);
+
+      container.innerHTML = `
+        <div class="metrics-grid">
+          <div class="metric-card">
+            <div class="metric-data">
+              <h4>Today's Total Expenses</h4>
+              <div class="metric-value" style="color: var(--danger);">${State.formatMoney(todayTotal)}</div>
+              <div class="metric-sub">${State.formatDate(today)}</div>
+            </div>
+            <div class="metric-icon red">
+              <svg width="24" height="24" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+            </div>
+          </div>
+
+          <div class="metric-card">
+            <div class="metric-data">
+              <h4>Total Recorded Expenses</h4>
+              <div class="metric-value">${State.formatMoney(overallTotal)}</div>
+              <div class="metric-sub">${expenses.length} expense entries recorded</div>
+            </div>
+            <div class="metric-icon amber">
+              <svg width="24" height="24" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+            </div>
+          </div>
+        </div>
+
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <h3 class="card-title">Daily Expense Vouchers</h3>
+              <p style="font-size: 12px; color: var(--text-muted);">Record day-to-day operations costs (Rent, Wages, Fuel, Transport, Supplies)</p>
+            </div>
+            <button class="btn btn-primary" onclick="App.showNewExpenseModal()">+ Record New Expense</button>
+          </div>
+
+          ${expenses.length === 0 ? `
+            <div class="empty-state">
+              <h3>No expenses recorded</h3>
+              <p>Record your company's operational expenses to keep accurate net profit figures.</p>
+              <button class="btn btn-primary" onclick="App.showNewExpenseModal()">Record Expense</button>
+            </div>
+          ` : `
+            <div class="table-container">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Voucher #</th>
+                    <th>Date</th>
+                    <th>Category</th>
+                    <th>Description</th>
+                    <th>Payment Mode</th>
+                    <th>Amount</th>
+                    <th>Recorded By</th>
+                    <th>Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${expenses.map(exp => `
+                    <tr>
+                      <td><strong>${exp.expense_number}</strong></td>
+                      <td>${State.formatDate(exp.expense_date)}</td>
+                      <td><span class="badge badge-neutral">${exp.category}</span></td>
+                      <td>${exp.description}</td>
+                      <td>${exp.payment_method}</td>
+                      <td style="color: var(--danger); font-weight: bold; font-size: 13.5px;">
+                        ${State.formatMoney(exp.amount)}
+                      </td>
+                      <td>${exp.recorded_by_name || 'Staff'}</td>
+                      <td>
+                        <button class="btn btn-sm btn-danger" onclick="App.deleteExpenseAction(${exp.id})">Delete</button>
+                      </td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+              </table>
+            </div>
+          `}
+        </div>
+      `;
+    } catch (e) {
+      container.innerHTML = `<div class="card" style="color: var(--danger);">Error loading expenses: ${e.message}</div>`;
+    }
+  },
+
+  showNewExpenseModal() {
+    const modal = document.getElementById('general-modal');
+    document.getElementById('general-modal-title').textContent = 'Record Daily Business Expense';
+    document.getElementById('general-modal-body').innerHTML = `
+      <form id="new-expense-form" onsubmit="App.submitNewExpense(event)">
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Expense Date</label>
+            <input type="date" id="exp-date" class="form-input" value="${new Date().toISOString().split('T')[0]}" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Category</label>
+            <select id="exp-category" class="form-select" required>
+              <option value="Transport & Logistics">Transport & Logistics</option>
+              <option value="Casual Wages & Labor">Casual Wages & Labor</option>
+              <option value="Rent & Premises">Rent & Premises</option>
+              <option value="Utilities & Electricity">Utilities & Electricity / Water</option>
+              <option value="Fuel & Generator">Fuel & Vehicle / Generator</option>
+              <option value="Store Supplies & Stationery">Store Supplies & Stationery</option>
+              <option value="Repairs & Maintenance">Repairs & Maintenance</option>
+              <option value="Meals & Refreshment">Staff Meals & Refreshment</option>
+              <option value="Miscellaneous">Miscellaneous</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Amount (${State.settings.currency_symbol || 'TSh'})</label>
+            <input type="number" id="exp-amount" class="form-input" step="any" placeholder="0.00" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Paid From Account</label>
+            <select id="exp-payment-method" class="form-select" required>
+              <option value="CASH">Cash in Drawer</option>
+              <option value="MPESA">M-Pesa Account</option>
+              <option value="TIGO_PESA">Tigo Pesa</option>
+              <option value="BANK">Bank Account</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Description / Purpose</label>
+          <input type="text" id="exp-desc" class="form-input" placeholder="e.g. Offloading truck, purchase receipt books" required>
+        </div>
+
+        <button type="submit" class="btn btn-primary" style="width: 100%;">Record & Deduct from Cash</button>
+      </form>
+    `;
+    modal.classList.add('active');
+  },
+
+  async submitNewExpense(e) {
+    e.preventDefault();
+    const date = document.getElementById('exp-date').value;
+    const cat = document.getElementById('exp-category').value;
+    const amount = parseFloat(document.getElementById('exp-amount').value) || 0;
+    const method = document.getElementById('exp-payment-method').value;
+    const desc = document.getElementById('exp-desc').value.trim();
+
+    try {
+      const res = await API.createExpense({
+        expense_date: date,
+        category: cat,
+        amount: amount,
+        payment_method: method,
+        description: desc,
+        user_id: State.currentUser?.id
+      });
+      if (res && res.success) {
+        State.showToast('Expense recorded successfully', 'success');
+        document.getElementById('general-modal').classList.remove('active');
+        this.renderExpenses(document.getElementById('content-area'));
+      }
+    } catch (err) {
+      State.showToast(err.message, 'error');
+    }
+  },
+
+  async deleteExpenseAction(id) {
+    if (confirm('Delete this expense record?')) {
+      try {
+        await API.deleteExpense(id);
+        State.showToast('Expense deleted', 'info');
+        this.renderExpenses(document.getElementById('content-area'));
+      } catch (err) {
+        State.showToast(err.message, 'error');
+      }
+    }
+  },
+
+  // -------------------------------------------------------------
+  // 8. CAPITAL AVAILABLE & FINANCIAL HEALTH
+  // -------------------------------------------------------------
+  async renderCapital(container) {
+    container.innerHTML = `<div style="text-align: center; padding: 40px;"><div class="spinner"></div> Loading Capital & Cashflow...</div>`;
+    try {
+      const res = await API.getCapital();
+      const cap = res.capital || {};
+      const ledger = res.ledger || [];
+
+      container.innerHTML = `
+        <div class="card" style="background: linear-gradient(135deg, #0f172a, #1e293b); color: #ffffff;">
+          <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px;">
+            <div>
+              <div style="font-size: 13px; text-transform: uppercase; color: #94a3b8; letter-spacing: 1px;">TOTAL ESTIMATED NET BUSINESS CAPITAL</div>
+              <div style="font-size: 32px; font-weight: 900; color: #38bdf8; margin: 4px 0;">
+                ${State.formatMoney(cap.total_estimated_net_capital)}
+              </div>
+              <div style="font-size: 12px; color: #cbd5e1;">
+                Liquid Capital (${State.formatMoney(cap.total_liquid)}) + Physical Inventory (${State.formatMoney(cap.stock_cost_valuation)}) + Debtors (${State.formatMoney(cap.debtors_total)})
+              </div>
+            </div>
+            <div style="display: flex; gap: 10px;">
+              <button class="btn btn-primary" onclick="App.showCapitalAdjustModal('CAPITAL_INJECTION')">
+                + Add Capital / Money In
+              </button>
+              <button class="btn btn-secondary" onclick="App.showCapitalAdjustModal('OWNER_DRAWING')">
+                - Owner Drawing / Withdrawal
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- Liquid Capital Breakdown Cards -->
+        <div class="metrics-grid">
+          <div class="metric-card">
+            <div class="metric-data">
+              <h4>Cash in Register / Drawer</h4>
+              <div class="metric-value" style="color: var(--primary);">${State.formatMoney(cap.cash)}</div>
+              <div class="metric-sub">Physical cash available for daily trade</div>
+            </div>
+            <div class="metric-icon teal">
+              <svg width="24" height="24" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>
+            </div>
+          </div>
+
+          <div class="metric-card">
+            <div class="metric-data">
+              <h4>Bank Account Balance</h4>
+              <div class="metric-value" style="color: var(--secondary);">${State.formatMoney(cap.bank)}</div>
+              <div class="metric-sub">CRDB / NMB Commercial Account</div>
+            </div>
+            <div class="metric-icon blue">
+              <svg width="24" height="24" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 14v3m4-3v3m4-3v3M3 21h18M3 10h18M3 7l9-4 9 4M4 10h16v11H4V10z"></path></svg>
+            </div>
+          </div>
+
+          <div class="metric-card">
+            <div class="metric-data">
+              <h4>Mobile Money Float</h4>
+              <div class="metric-value" style="color: var(--warning);">${State.formatMoney(cap.mobile_money)}</div>
+              <div class="metric-sub">M-Pesa / Tigo Pesa Lipa Namba</div>
+            </div>
+            <div class="metric-icon amber">
+              <svg width="24" height="24" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z"></path></svg>
+            </div>
+          </div>
+        </div>
+
+        <!-- Capital Transactions Ledger -->
+        <div class="card">
+          <div class="card-header">
+            <h3 class="card-title">Capital Adjustments & Owner Transactions</h3>
+          </div>
+
+          ${ledger.length === 0 ? `
+            <div class="empty-state">
+              <p>No capital injections or drawings recorded yet.</p>
+              <button class="btn btn-primary" onclick="App.showCapitalAdjustModal('CAPITAL_INJECTION')">Record Initial Capital</button>
+            </div>
+          ` : `
+            <div class="table-container">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Date</th>
+                    <th>Type</th>
+                    <th>Account</th>
+                    <th>Amount</th>
+                    <th>Description</th>
+                    <th>Recorded By</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${ledger.map(l => `
+                    <tr>
+                      <td>${State.formatDate(l.entry_date || l.created_at)}</td>
+                      <td>
+                        <span class="badge ${l.entry_type === 'CAPITAL_INJECTION' ? 'badge-success' : 'badge-danger'}">
+                          ${l.entry_type === 'CAPITAL_INJECTION' ? 'Injection / Inflow' : 'Owner Drawing'}
+                        </span>
+                      </td>
+                      <td>${l.account}</td>
+                      <td style="font-weight: bold; color: ${l.entry_type === 'CAPITAL_INJECTION' ? 'var(--success)' : 'var(--danger)'};">
+                        ${l.entry_type === 'CAPITAL_INJECTION' ? '+' : '-'}${State.formatMoney(l.amount)}
+                      </td>
+                      <td>${l.description}</td>
+                      <td>${l.user_name || 'Admin'}</td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+              </table>
+            </div>
+          `}
+        </div>
+      `;
+    } catch (e) {
+      container.innerHTML = `<div class="card" style="color: var(--danger);">Error loading capital: ${e.message}</div>`;
+    }
+  },
+
+  showCapitalAdjustModal(type) {
+    const isInject = type === 'CAPITAL_INJECTION';
+    const modal = document.getElementById('general-modal');
+    document.getElementById('general-modal-title').textContent = isInject ? 'Add Capital / Inject Funds' : 'Owner Drawing / Cash Withdrawal';
+    document.getElementById('general-modal-body').innerHTML = `
+      <form id="capital-form" onsubmit="App.submitCapitalAdjust(event, '${type}')">
+        <div class="form-group">
+          <label class="form-label">Transaction Type</label>
+          <input type="text" class="form-input" value="${isInject ? 'Capital Injection (+)' : 'Owner Drawing (-)'}" disabled>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Amount (${State.settings.currency_symbol || 'TSh'})</label>
+          <input type="number" id="cap-amount" class="form-input" step="any" placeholder="0.00" required>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Target Account</label>
+          <select id="cap-account" class="form-select" required>
+            <option value="CASH">Physical Cash Drawer</option>
+            <option value="BANK">Bank Account (CRDB/NMB)</option>
+            <option value="MOBILE_MONEY">Mobile Money (M-Pesa)</option>
+          </select>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Description / Source</label>
+          <input type="text" id="cap-desc" class="form-input" placeholder="e.g. Owner capital deposit, monthly profit drawing" required>
+        </div>
+
+        <button type="submit" class="btn ${isInject ? 'btn-primary' : 'btn-danger'}" style="width: 100%;">
+          Confirm ${isInject ? 'Capital Inflow' : 'Drawing'}
+        </button>
+      </form>
+    `;
+    modal.classList.add('active');
+  },
+
+  async submitCapitalAdjust(e, type) {
+    e.preventDefault();
+    const amount = parseFloat(document.getElementById('cap-amount').value) || 0;
+    const account = document.getElementById('cap-account').value;
+    const desc = document.getElementById('cap-desc').value.trim();
+
+    try {
+      const res = await API.recordCapitalAdjustment({
+        entry_type: type,
+        amount: amount,
+        account: account,
+        description: desc,
+        user_id: State.currentUser?.id,
+        entry_date: new Date().toISOString().split('T')[0]
+      });
+      if (res && res.success) {
+        State.showToast('Capital transaction updated', 'success');
+        document.getElementById('general-modal').classList.remove('active');
+        this.renderCapital(document.getElementById('content-area'));
+      }
+    } catch (err) {
+      State.showToast(err.message, 'error');
+    }
+  },
+
+  // -------------------------------------------------------------
+  // 9. ADMIN: WORKERS & DAILY SHIFT TRACKING
+  // "know who was working in that specific day"
+  // -------------------------------------------------------------
+  async renderWorkers(container) {
+    container.innerHTML = `<div style="text-align: center; padding: 40px;"><div class="spinner"></div> Loading Workers & Shifts...</div>`;
+    const selectedDate = State.selectedReportDate || new Date().toISOString().split('T')[0];
+
+    try {
+      const [wRes, sRes] = await Promise.all([API.getWorkers(), API.getShifts(selectedDate)]);
+      const workers = wRes.workers || [];
+      const shifts = sRes.shifts || [];
+
+      container.innerHTML = `
+        <!-- DAILY ATTENDANCE & SHIFT LOG SECTION -->
+        <div class="card" style="border-top: 4px solid var(--primary);">
+          <div class="card-header">
+            <div>
+              <h3 class="card-title">
+                <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+                Who Was Working on That Specific Day?
+              </h3>
+              <p style="font-size: 12px; color: var(--text-muted);">Select any calendar date to see exactly which workers were on duty, their hours, and sales handled</p>
+            </div>
+            <!-- Date Filter Picker -->
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <label style="font-size: 12px; font-weight: 600;">Select Date:</label>
+              <input type="date" id="shift-date-picker" class="form-input" style="width: 160px; padding: 6px 10px;" value="${selectedDate}" onchange="App.onShiftDateChange(this.value)">
+            </div>
+          </div>
+
+          <div style="background: #f8fafc; padding: 12px 16px; border-radius: 6px; margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center;">
+            <div>
+              <strong>Date Selected:</strong> ${State.formatDate(selectedDate)}
+            </div>
+            <div>
+              <strong>Total Staff on Duty:</strong> <span class="badge badge-info">${shifts.length} Workers</span>
+            </div>
+          </div>
+
+          ${shifts.length === 0 ? `
+            <div class="empty-state" style="padding: 32px 20px;">
+              <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+              <h3>No shift records for ${State.formatDate(selectedDate)}</h3>
+              <p>No workers clocked in on this specific date.</p>
+            </div>
+          ` : `
+            <div class="table-container">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Worker Name</th>
+                    <th>Role</th>
+                    <th>Phone</th>
+                    <th>Clock In Time</th>
+                    <th>Clock Out Time</th>
+                    <th>Opening Cash</th>
+                    <th>Closing Cash</th>
+                    <th>Sales Made</th>
+                    <th>Total Sold</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${shifts.map(s => `
+                    <tr>
+                      <td><strong>${s.worker_name}</strong></td>
+                      <td><span class="badge badge-neutral">${s.worker_role}</span></td>
+                      <td>${s.worker_phone || '-'}</td>
+                      <td><strong>${new Date(s.clock_in).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</strong></td>
+                      <td>${s.clock_out ? `<strong>${new Date(s.clock_out).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</strong>` : '<span style="color: var(--success); font-weight: 600;">Active On Duty</span>'}</td>
+                      <td>${State.formatMoney(s.opening_cash)}</td>
+                      <td>${s.closing_cash !== null ? State.formatMoney(s.closing_cash) : '-'}</td>
+                      <td><strong>${s.sales_count || 0}</strong> orders</td>
+                      <td style="color: var(--primary); font-weight: bold;">${State.formatMoney(s.total_sales || 0)}</td>
+                      <td>
+                        <span class="badge ${s.clock_out ? 'badge-neutral' : 'badge-success'}">
+                          ${s.clock_out ? 'Clocked Out' : 'Active On Duty'}
+                        </span>
+                      </td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+              </table>
+            </div>
+          `}
+        </div>
+
+        <!-- ADMIN WORKERS DIRECTORY -->
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <h3 class="card-title">Staff & Worker Accounts Management</h3>
+              <p style="font-size: 12px; color: var(--text-muted);">Admin profile: Add new workers, assign system roles and security credentials</p>
+            </div>
+            <button class="btn btn-primary" onclick="App.showNewWorkerModal()">+ Add New Worker</button>
+          </div>
+
+          <div class="table-container">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Worker Name</th>
+                  <th>Username</th>
+                  <th>Role</th>
+                  <th>Phone Number</th>
+                  <th>Account Status</th>
+                  <th>Created Date</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${workers.map(w => `
+                  <tr>
+                    <td><strong>${w.full_name}</strong></td>
+                    <td><code>${w.username}</code></td>
+                    <td><span class="badge ${w.role === 'Admin' ? 'badge-info' : 'badge-neutral'}">${w.role}</span></td>
+                    <td>${w.phone || '-'}</td>
+                    <td>
+                      <span class="badge ${w.active ? 'badge-success' : 'badge-danger'}">
+                        ${w.active ? 'Active' : 'Disabled'}
+                      </span>
+                    </td>
+                    <td>${State.formatDate(w.created_at)}</td>
+                    <td>
+                      <button class="btn btn-sm btn-secondary" onclick="App.showEditWorkerModal(${w.id})">
+                        Edit / Reset PIN
+                      </button>
+                    </td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      `;
+    } catch (e) {
+      container.innerHTML = `<div class="card" style="color: var(--danger);">Error loading workers: ${e.message}</div>`;
+    }
+  },
+
+  onShiftDateChange(date) {
+    State.selectedReportDate = date;
+    this.renderWorkers(document.getElementById('content-area'));
+  },
+
+  showNewWorkerModal() {
+    const modal = document.getElementById('general-modal');
+    document.getElementById('general-modal-title').textContent = 'Add New Worker / Staff Member';
+    document.getElementById('general-modal-body').innerHTML = `
+      <form id="new-worker-form" onsubmit="App.submitNewWorker(event)">
+        <div class="form-group">
+          <label class="form-label">Full Name</label>
+          <input type="text" id="w-name" class="form-input" placeholder="e.g. John Mwangi" required>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Username (for Login)</label>
+            <input type="text" id="w-user" class="form-input" placeholder="e.g. jmwangi" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Assigned Role</label>
+            <select id="w-role" class="form-select" required>
+              <option value="Cashier">Cashier (POS & Sales)</option>
+              <option value="Storekeeper">Storekeeper (Inventory & Receiving)</option>
+              <option value="Manager">Manager (Operations & Approvals)</option>
+              <option value="Accountant">Accountant (Invoices & Capital)</option>
+              <option value="Admin">Admin (Full System Access)</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Phone Number</label>
+            <input type="text" id="w-phone" class="form-input" placeholder="07xxxxxxxx" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Login Password / PIN</label>
+            <input type="password" id="w-pass" class="form-input" placeholder="Minimum 6 characters" required>
+          </div>
+        </div>
+
+        <button type="submit" class="btn btn-primary" style="width: 100%;">Create Worker Profile</button>
+      </form>
+    `;
+    modal.classList.add('active');
+  },
+
+  async submitNewWorker(e) {
+    e.preventDefault();
+    const name = document.getElementById('w-name').value.trim();
+    const username = document.getElementById('w-user').value.trim();
+    const role = document.getElementById('w-role').value;
+    const phone = document.getElementById('w-phone').value.trim();
+    const password = document.getElementById('w-pass').value.trim();
+
+    try {
+      const res = await API.addWorker({
+        full_name: name,
+        username: username,
+        role: role,
+        phone: phone,
+        password: password
+      });
+      if (res && res.success) {
+        State.showToast(`Worker ${name} added successfully!`, 'success');
+        document.getElementById('general-modal').classList.remove('active');
+        this.renderWorkers(document.getElementById('content-area'));
+      }
+    } catch (err) {
+      State.showToast(err.message, 'error');
+    }
+  },
+
+  async showEditWorkerModal(workerId) {
+    const res = await API.getWorkers();
+    const w = (res.workers || []).find(x => x.id === workerId);
+    if (!w) return;
+
+    const modal = document.getElementById('general-modal');
+    document.getElementById('general-modal-title').textContent = `Edit Worker: ${w.full_name}`;
+    document.getElementById('general-modal-body').innerHTML = `
+      <form id="edit-worker-form" onsubmit="App.submitEditWorker(event, ${w.id})">
+        <div class="form-group">
+          <label class="form-label">Full Name</label>
+          <input type="text" id="ew-name" class="form-input" value="${w.full_name}" required>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Role</label>
+            <select id="ew-role" class="form-select" required>
+              <option value="Cashier" ${w.role === 'Cashier' ? 'selected' : ''}>Cashier</option>
+              <option value="Storekeeper" ${w.role === 'Storekeeper' ? 'selected' : ''}>Storekeeper</option>
+              <option value="Manager" ${w.role === 'Manager' ? 'selected' : ''}>Manager</option>
+              <option value="Accountant" ${w.role === 'Accountant' ? 'selected' : ''}>Accountant</option>
+              <option value="Admin" ${w.role === 'Admin' ? 'selected' : ''}>Admin</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Phone</label>
+            <input type="text" id="ew-phone" class="form-input" value="${w.phone || ''}">
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Reset Password / PIN (Leave blank to keep unchanged)</label>
+          <input type="password" id="ew-pass" class="form-input" placeholder="New password if resetting">
+        </div>
+
+        <div class="form-group">
+          <label style="display: flex; align-items: center; gap: 8px; cursor: pointer;">
+            <input type="checkbox" id="ew-active" ${w.active ? 'checked' : ''}>
+            <span>Active Worker (Can log in to system)</span>
+          </label>
+        </div>
+
+        <button type="submit" class="btn btn-primary" style="width: 100%;">Save Changes</button>
+      </form>
+    `;
+    modal.classList.add('active');
+  },
+
+  async submitEditWorker(e, workerId) {
+    e.preventDefault();
+    const name = document.getElementById('ew-name').value.trim();
+    const role = document.getElementById('ew-role').value;
+    const phone = document.getElementById('ew-phone').value.trim();
+    const password = document.getElementById('ew-pass').value.trim();
+    const active = document.getElementById('ew-active').checked;
+
+    try {
+      const res = await API.updateWorker(workerId, {
+        full_name: name,
+        role: role,
+        phone: phone,
+        password: password,
+        active: active
+      });
+      if (res && res.success) {
+        State.showToast('Worker details updated', 'success');
+        document.getElementById('general-modal').classList.remove('active');
+        this.renderWorkers(document.getElementById('content-area'));
+      }
+    } catch (err) {
+      State.showToast(err.message, 'error');
+    }
+  },
+
+  // -------------------------------------------------------------
+  // 10. DAILY REPORTS & WORKER AUDIT
+  // -------------------------------------------------------------
+  async renderReports(container) {
+    container.innerHTML = `<div style="text-align: center; padding: 40px;"><div class="spinner"></div> Loading Reports...</div>`;
+    const date = State.selectedReportDate || new Date().toISOString().split('T')[0];
+
+    try {
+      const [wRes, rRes] = await Promise.all([API.getWorkers(), API.getDailyReport(date)]);
+      const workers = wRes.workers || [];
+      const rep = rRes || {};
+      const orders = rep.orders || [];
+      const expenses = rep.expenses || [];
+
+      container.innerHTML = `
+        <div class="card">
+          <div class="card-header">
+            <div>
+              <h3 class="card-title">Daily Business & Worker Activity Report</h3>
+              <p style="font-size: 12px; color: var(--text-muted);">Comprehensive financial report and audit trail for any day</p>
+            </div>
+            <div style="display: flex; gap: 10px; align-items: center;">
+              <input type="date" id="report-date-picker" class="form-input" style="width: 160px; padding: 6px 10px;" value="${date}" onchange="App.onReportDateChange(this.value)">
+              <button class="btn btn-secondary" onclick="window.print()">Print Report</button>
+            </div>
+          </div>
+
+          <div class="metrics-grid">
+            <div class="metric-card">
+              <div class="metric-data">
+                <h4>Total Sales on ${State.formatDate(date)}</h4>
+                <div class="metric-value" style="color: var(--success);">${State.formatMoney(rep.total_sales)}</div>
+              </div>
+            </div>
+            <div class="metric-card">
+              <div class="metric-data">
+                <h4>Total Expenses on ${State.formatDate(date)}</h4>
+                <div class="metric-value" style="color: var(--danger);">${State.formatMoney(rep.total_expenses)}</div>
+              </div>
+            </div>
+            <div class="metric-card">
+              <div class="metric-data">
+                <h4>Daily Net Profit</h4>
+                <div class="metric-value" style="color: ${rep.net_profit >= 0 ? 'var(--primary)' : 'var(--danger)'};">
+                  ${State.formatMoney(rep.net_profit)}
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <h4 style="margin: 20px 0 10px; font-size: 15px; font-weight: 700;">Sales Transactions on this Day</h4>
+          ${orders.length === 0 ? `
+            <p style="color: var(--text-muted); padding: 12px 0;">No sales transactions on this date.</p>
+          ` : `
+            <div class="table-container">
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Time</th>
+                    <th>Order #</th>
+                    <th>Cashier / Worker</th>
+                    <th>Customer</th>
+                    <th>Method</th>
+                    <th>Amount</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${orders.map(o => `
+                    <tr>
+                      <td>${new Date(o.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</td>
+                      <td><strong>${o.order_number}</strong></td>
+                      <td>${o.worker_name || 'Staff'}</td>
+                      <td>${o.customer_name}</td>
+                      <td>${o.payment_method}</td>
+                      <td><strong>${State.formatMoney(o.total)}</strong></td>
+                    </tr>
+                  `).join('')}
+                </tbody>
+              </table>
+            </div>
+          `}
+        </div>
+      `;
+    } catch (e) {
+      container.innerHTML = `<div class="card" style="color: var(--danger);">Error loading report: ${e.message}</div>`;
+    }
+  },
+
+  onReportDateChange(date) {
+    State.selectedReportDate = date;
+    this.renderReports(document.getElementById('content-area'));
+  },
+
+  // -------------------------------------------------------------
+  // 11. COMPANY PROFILE & SYSTEM SETTINGS
+  // -------------------------------------------------------------
+  async renderSettings(container) {
+    const s = State.settings || {};
+
+    container.innerHTML = `
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <h3 class="card-title">Company Profile & Branding Credentials</h3>
+            <p style="font-size: 12px; color: var(--text-muted);">These credentials appear on all printed POS receipts, Invoices, Delivery Notes, and Quotations</p>
+          </div>
+        </div>
+
+        <form id="settings-form" onsubmit="App.saveCompanySettings(event)">
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Company / Business Name</label>
+              <input type="text" id="set-company-name" class="form-input" value="${s.company_name || 'JENGAKWANZA LIMITED'}" required>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Tagline / Business Description</label>
+              <input type="text" id="set-tagline" class="form-input" value="${s.tagline || 'Building Excellence & Quality Supplies'}">
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Official Phone Numbers (Appears on receipts)</label>
+              <input type="text" id="set-phones" class="form-input" value="${s.phone_numbers || '0788989889 / 0713550104'}" required>
+            </div>
+            <div class="form-group">
+              <label class="form-label">P.O. Box & Physical Address</label>
+              <input type="text" id="set-address" class="form-input" value="${s.address || 'P.O.BOX 14991 ARUSHA'}" required>
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Official Email Address</label>
+              <input type="email" id="set-email" class="form-input" value="${s.email || 'jengakwanzaltd@gmail.com'}" required>
+            </div>
+            <div class="form-group">
+              <label class="form-label">Currency Symbol</label>
+              <input type="text" id="set-currency" class="form-input" value="${s.currency_symbol || 'TSh'}" required>
+            </div>
+          </div>
+
+          <div class="form-group">
+            <label class="form-label">Receipt Footer Note</label>
+            <textarea id="set-receipt-footer" class="form-textarea" rows="2">${s.receipt_footer || 'Thank you for choosing JENGAKWANZA LIMITED! Goods once sold are not returnable without valid receipt.'}</textarea>
+          </div>
+
+          <button type="submit" class="btn btn-primary">Save Company Credentials</button>
+        </form>
+      </div>
+
+      <!-- Firebase Cloud Backend Configuration -->
+      <div class="card" style="border-top: 4px solid #f59e0b;">
+        <div class="card-header">
+          <div>
+            <h3 class="card-title">
+              <svg width="20" height="20" viewBox="0 0 24 24" fill="#f59e0b"><path d="M4.6 17.1L7.5 2.4c.1-.4.5-.6.9-.4l4.2 8-8 7.1zm14.8-3.4L17.7 3.3c-.1-.4-.6-.6-.9-.3l-3.3 6.3 5.9 4.4zM4.1 18.2l7.4 4.2c.3.2.7.2 1 0l7.4-4.2L4.1 18.2z"/></svg>
+              Firebase Cloud Backend & Vercel Sync
+            </h3>
+            <p style="font-size: 12px; color: var(--text-muted);">Connect Google Firebase Cloud Firestore for real-time cloud sync across devices and Vercel hosting</p>
+          </div>
+          <span class="badge ${FirebaseAdapter.isInitialized ? 'badge-success' : (FirebaseAdapter.hasConfig() ? 'badge-warning' : 'badge-neutral')}">
+            ${FirebaseAdapter.isInitialized ? 'Cloud Firestore Active' : (FirebaseAdapter.hasConfig() ? 'Configured (Connecting...)' : 'Local / Offline Mode')}
+          </span>
+        </div>
+
+        <div style="background: #fffbeb; border: 1px solid #fef3c7; border-radius: 6px; padding: 12px 16px; margin-bottom: 16px; font-size: 12.5px; color: #92400e;">
+          <strong>How to connect your Firebase Project:</strong><br>
+          1. Go to <a href="https://console.firebase.google.com" target="_blank" style="color: #b45309; text-decoration: underline;">Firebase Console</a> & create a project.<br>
+          2. Click <strong>Firestore Database</strong> -> Create database.<br>
+          3. Click <strong>Project Settings</strong> (gear icon) -> <strong>Your apps</strong> -> Add Web App (<code>&lt;/&gt;</code>) and paste the credentials below:
+        </div>
+
+        <form id="firebase-form" onsubmit="App.saveFirebaseConfig(event)">
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Firebase API Key (apiKey)</label>
+              <input type="text" id="fb-api-key" class="form-input" value="${(window.FIREBASE_CONFIG && window.FIREBASE_CONFIG.apiKey) || ''}" placeholder="AIzaSy...">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Project ID (projectId)</label>
+              <input type="text" id="fb-project-id" class="form-input" value="${(window.FIREBASE_CONFIG && window.FIREBASE_CONFIG.projectId) || ''}" placeholder="jengakwanza-pos">
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Auth Domain (authDomain)</label>
+              <input type="text" id="fb-auth-domain" class="form-input" value="${(window.FIREBASE_CONFIG && window.FIREBASE_CONFIG.authDomain) || ''}" placeholder="jengakwanza-pos.firebaseapp.com">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Storage Bucket (storageBucket)</label>
+              <input type="text" id="fb-storage-bucket" class="form-input" value="${(window.FIREBASE_CONFIG && window.FIREBASE_CONFIG.storageBucket) || ''}" placeholder="jengakwanza-pos.appspot.com">
+            </div>
+          </div>
+
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Messaging Sender ID</label>
+              <input type="text" id="fb-sender-id" class="form-input" value="${(window.FIREBASE_CONFIG && window.FIREBASE_CONFIG.messagingSenderId) || ''}" placeholder="1234567890">
+            </div>
+            <div class="form-group">
+              <label class="form-label">App ID (appId)</label>
+              <input type="text" id="fb-app-id" class="form-input" value="${(window.FIREBASE_CONFIG && window.FIREBASE_CONFIG.appId) || ''}" placeholder="1:1234567890:web:abcdef">
+            </div>
+          </div>
+
+          <div style="display: flex; gap: 10px; margin-top: 10px;">
+            <button type="submit" class="btn btn-primary">Save Firebase Configuration</button>
+            <button type="button" class="btn btn-secondary" onclick="App.testFirebaseConnection()">Test Cloud Connection</button>
+          </div>
+        </form>
+      </div>
+
+      <!-- Backup and Database Management -->
+      <div class="card">
+        <div class="card-header">
+          <div>
+            <h3 class="card-title">Full Database Backup & Data Portability</h3>
+            <p style="font-size: 12px; color: var(--text-muted);">Download a complete, secure JSON export of your business data at any time</p>
+          </div>
+          <button class="btn btn-primary" onclick="App.downloadFullBackup()">Download Backup JSON</button>
+        </div>
+      </div>
+    `;
+  },
+
+  async saveCompanySettings(e) {
+    e.preventDefault();
+    const data = {
+      company_name: document.getElementById('set-company-name').value.trim(),
+      tagline: document.getElementById('set-tagline').value.trim(),
+      phone_numbers: document.getElementById('set-phones').value.trim(),
+      address: document.getElementById('set-address').value.trim(),
+      email: document.getElementById('set-email').value.trim(),
+      currency_symbol: document.getElementById('set-currency').value.trim(),
+      receipt_footer: document.getElementById('set-receipt-footer').value.trim()
+    };
+
+    try {
+      await API.saveSettings(data);
+      State.setSettings({ ...State.settings, ...data });
+      State.showToast('Settings and company credentials updated!', 'success');
+    } catch (err) {
+      State.showToast(err.message, 'error');
+    }
+  },
+
+  async saveFirebaseConfig(e) {
+    e.preventDefault();
+    const config = {
+      apiKey: document.getElementById('fb-api-key').value.trim(),
+      projectId: document.getElementById('fb-project-id').value.trim(),
+      authDomain: document.getElementById('fb-auth-domain').value.trim(),
+      storageBucket: document.getElementById('fb-storage-bucket').value.trim(),
+      messagingSenderId: document.getElementById('fb-sender-id').value.trim(),
+      appId: document.getElementById('fb-app-id').value.trim()
+    };
+
+    if (!config.apiKey || !config.projectId) {
+      State.showToast('Please enter at least Firebase API Key and Project ID', 'error');
+      return;
+    }
+
+    try {
+      localStorage.setItem('jengakwanza_firebase_config', JSON.stringify(config));
+      window.FIREBASE_CONFIG = config;
+      State.showToast('Connecting to Cloud Firestore...', 'info');
+
+      const ok = await FirebaseAdapter.init(config);
+      if (ok) {
+        State.showToast('✓ Connected to Firebase Cloud Firestore!', 'success');
+        this.renderSettings(document.getElementById('content-area'));
+      } else {
+        State.showToast('Firebase initialization failed. Please check config.', 'error');
+      }
+    } catch (err) {
+      State.showToast(`Firebase error: ${err.message}`, 'error');
+    }
+  },
+
+  async testFirebaseConnection() {
+    State.showToast('Testing Firebase Cloud connection...', 'info');
+    try {
+      const ok = await FirebaseAdapter.init();
+      if (ok) {
+        State.showToast('✓ Cloud Firestore is connected and ready!', 'success');
+      } else {
+        State.showToast('Please enter your Firebase configuration keys first', 'warning');
+      }
+    } catch (err) {
+      State.showToast(`Connection failed: ${err.message}`, 'error');
+    }
+  },
+
+  async downloadFullBackup() {
+    try {
+      const backup = await API.exportBackup();
+      const str = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(backup, null, 2));
+      const downloadAnchor = document.createElement('a');
+      downloadAnchor.setAttribute("href", str);
+      downloadAnchor.setAttribute("download", `JENGAKWANZA_Backup_${new Date().toISOString().split('T')[0]}.json`);
+      document.body.appendChild(downloadAnchor);
+      downloadAnchor.click();
+      downloadAnchor.remove();
+      State.showToast('Backup file downloaded', 'success');
+    } catch (e) {
+      State.showToast(e.message, 'error');
+    }
+  },
+
+  // -------------------------------------------------------------
+  // COMMON MODAL BUILDERS (Products, Customers, Suppliers, Invoices)
+  // -------------------------------------------------------------
+  showNewProductModal() {
+    const modal = document.getElementById('general-modal');
+    document.getElementById('general-modal-title').textContent = 'Add New Inventory Product';
+    document.getElementById('general-modal-body').innerHTML = `
+      <form id="new-prod-form" onsubmit="App.submitNewProduct(event)">
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Product / Material Name</label>
+            <input type="text" id="np-name" class="form-input" placeholder="e.g. Cement Simba 32.5R" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Category</label>
+            <input type="text" id="np-category" class="form-input" placeholder="e.g. Cement, Steel, Timber, Paints" required>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">SKU / Item Code</label>
+            <input type="text" id="np-sku" class="form-input" placeholder="Auto-generated if blank">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Barcode (Optional)</label>
+            <input type="text" id="np-barcode" class="form-input" placeholder="Scan barcode">
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Buying / Cost Price (${State.settings.currency_symbol || 'TSh'})</label>
+            <input type="number" id="np-cost" class="form-input" step="any" placeholder="0.00" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Selling Price (${State.settings.currency_symbol || 'TSh'})</label>
+            <input type="number" id="np-price" class="form-input" step="any" placeholder="0.00" required>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Initial Quantity in Stock</label>
+            <input type="number" id="np-stock" class="form-input" step="any" value="0" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Unit of Measure</label>
+            <select id="np-unit" class="form-select">
+              <option value="pcs">Pieces (pcs)</option>
+              <option value="bags">Bags</option>
+              <option value="kg">Kilograms (kg)</option>
+              <option value="ton">Ton</option>
+              <option value="meters">Meters</option>
+              <option value="rolls">Rolls</option>
+              <option value="boxes">Boxes</option>
+              <option value="litres">Litres</option>
+              <option value="trips">Trips</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Low Stock Alert Threshold</label>
+            <input type="number" id="np-alert" class="form-input" value="5">
+          </div>
+        </div>
+
+        <button type="submit" class="btn btn-primary" style="width: 100%;">Save Product to Inventory</button>
+      </form>
+    `;
+    modal.classList.add('active');
+  },
+
+  async submitNewProduct(e) {
+    e.preventDefault();
+    const data = {
+      name: document.getElementById('np-name').value.trim(),
+      category: document.getElementById('np-category').value.trim() || 'General',
+      sku: document.getElementById('np-sku').value.trim(),
+      barcode: document.getElementById('np-barcode').value.trim(),
+      cost_price: parseFloat(document.getElementById('np-cost').value) || 0,
+      selling_price: parseFloat(document.getElementById('np-price').value) || 0,
+      stock_quantity: parseFloat(document.getElementById('np-stock').value) || 0,
+      unit: document.getElementById('np-unit').value,
+      min_alert_quantity: parseFloat(document.getElementById('np-alert').value) || 5,
+      user_id: State.currentUser?.id
+    };
+
+    try {
+      const res = await API.addProduct(data);
+      if (res && res.success) {
+        State.showToast('Product added successfully', 'success');
+        document.getElementById('general-modal').classList.remove('active');
+        if (State.currentRoute === 'inventory') {
+          this.renderInventory(document.getElementById('content-area'));
+        } else if (State.currentRoute === 'pos') {
+          this.renderPOS(document.getElementById('content-area'));
+        }
+      }
+    } catch (err) {
+      State.showToast(err.message, 'error');
+    }
+  },
+
+  showEditProductModal(productId) {
+    const p = this.productsCache.find(x => x.id === productId);
+    if (!p) return;
+
+    const modal = document.getElementById('general-modal');
+    document.getElementById('general-modal-title').textContent = `Edit Product: ${p.name}`;
+    document.getElementById('general-modal-body').innerHTML = `
+      <form id="edit-prod-form" onsubmit="App.submitEditProduct(event, ${p.id})">
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Product Name</label>
+            <input type="text" id="ep-name" class="form-input" value="${p.name}" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Category</label>
+            <input type="text" id="ep-category" class="form-input" value="${p.category || 'General'}" required>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">SKU</label>
+            <input type="text" id="ep-sku" class="form-input" value="${p.sku || ''}">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Unit</label>
+            <input type="text" id="ep-unit" class="form-input" value="${p.unit || 'pcs'}">
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Buying Cost Price</label>
+            <input type="number" id="ep-cost" class="form-input" step="any" value="${p.cost_price}" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Selling Price</label>
+            <input type="number" id="ep-price" class="form-input" step="any" value="${p.selling_price}" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Min Alert Threshold</label>
+            <input type="number" id="ep-alert" class="form-input" value="${p.min_alert_quantity}">
+          </div>
+        </div>
+
+        <button type="submit" class="btn btn-primary" style="width: 100%;">Save Product Changes</button>
+      </form>
+    `;
+    modal.classList.add('active');
+  },
+
+  async submitEditProduct(e, productId) {
+    e.preventDefault();
+    const data = {
+      name: document.getElementById('ep-name').value.trim(),
+      category: document.getElementById('ep-category').value.trim(),
+      sku: document.getElementById('ep-sku').value.trim(),
+      unit: document.getElementById('ep-unit').value.trim(),
+      cost_price: parseFloat(document.getElementById('ep-cost').value) || 0,
+      selling_price: parseFloat(document.getElementById('ep-price').value) || 0,
+      min_alert_quantity: parseFloat(document.getElementById('ep-alert').value) || 5
+    };
+
+    try {
+      await API.updateProduct(productId, data);
+      State.showToast('Product updated successfully', 'success');
+      document.getElementById('general-modal').classList.remove('active');
+      this.renderInventory(document.getElementById('content-area'));
+    } catch (err) {
+      State.showToast(err.message, 'error');
+    }
+  },
+
+  showNewCustomerModal() {
+    const modal = document.getElementById('general-modal');
+    document.getElementById('general-modal-title').textContent = 'Add New Customer';
+    document.getElementById('general-modal-body').innerHTML = `
+      <form id="new-cust-form" onsubmit="App.submitNewCustomer(event)">
+        <div class="form-group">
+          <label class="form-label">Full Customer / Company Name</label>
+          <input type="text" id="nc-name" class="form-input" placeholder="e.g. Serengeti Builders Ltd" required>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Phone Number</label>
+            <input type="text" id="nc-phone" class="form-input" placeholder="e.g. 07xxxxxxxx" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Email (Optional)</label>
+            <input type="email" id="nc-email" class="form-input" placeholder="client@example.com">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Physical Address / Site Location</label>
+            <input type="text" id="nc-address" class="form-input" placeholder="e.g. Njiro, Arusha">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Allowed Credit Limit (${State.settings.currency_symbol || 'TSh'})</label>
+            <input type="number" id="nc-credit" class="form-input" step="any" value="0">
+          </div>
+        </div>
+        <button type="submit" class="btn btn-primary" style="width: 100%;">Create Customer</button>
+      </form>
+    `;
+    modal.classList.add('active');
+  },
+
+  async submitNewCustomer(e) {
+    e.preventDefault();
+    const data = {
+      name: document.getElementById('nc-name').value.trim(),
+      phone: document.getElementById('nc-phone').value.trim(),
+      email: document.getElementById('nc-email').value.trim(),
+      address: document.getElementById('nc-address').value.trim(),
+      credit_limit: parseFloat(document.getElementById('nc-credit').value) || 0
+    };
+
+    try {
+      const res = await API.addCustomer(data);
+      if (res && res.success) {
+        State.showToast('Customer created successfully', 'success');
+        document.getElementById('general-modal').classList.remove('active');
+        if (State.currentRoute === 'debtors') {
+          this.renderDebtors(document.getElementById('content-area'));
+        } else if (State.currentRoute === 'pos') {
+          this.renderPOS(document.getElementById('content-area'));
+        }
+      }
+    } catch (err) {
+      State.showToast(err.message, 'error');
+    }
+  },
+
+  showNewSupplierModal() {
+    const modal = document.getElementById('general-modal');
+    document.getElementById('general-modal-title').textContent = 'Add Supplier';
+    document.getElementById('general-modal-body').innerHTML = `
+      <form id="new-sup-form" onsubmit="App.submitNewSupplier(event)">
+        <div class="form-group">
+          <label class="form-label">Supplier / Company Name</label>
+          <input type="text" id="ns-name" class="form-input" placeholder="e.g. Simba Cement Industries" required>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Contact Person</label>
+            <input type="text" id="ns-contact" class="form-input" placeholder="e.g. Sales Manager">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Phone Number</label>
+            <input type="text" id="ns-phone" class="form-input" placeholder="07xxxxxxxx" required>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Address / Location</label>
+          <input type="text" id="ns-address" class="form-input" placeholder="Tanga / Arusha">
+        </div>
+        <button type="submit" class="btn btn-primary" style="width: 100%;">Save Supplier</button>
+      </form>
+    `;
+    modal.classList.add('active');
+  },
+
+  async submitNewSupplier(e) {
+    e.preventDefault();
+    const data = {
+      name: document.getElementById('ns-name').value.trim(),
+      contact_person: document.getElementById('ns-contact').value.trim(),
+      phone: document.getElementById('ns-phone').value.trim(),
+      address: document.getElementById('ns-address').value.trim()
+    };
+
+    try {
+      const res = await API.addSupplier(data);
+      if (res && res.success) {
+        State.showToast('Supplier added successfully', 'success');
+        document.getElementById('general-modal').classList.remove('active');
+        this.renderSuppliers(document.getElementById('content-area'));
+      }
+    } catch (err) {
+      State.showToast(err.message, 'error');
+    }
+  },
+
+  showNewPOModal() {
+    const modal = document.getElementById('general-modal');
+    document.getElementById('general-modal-title').textContent = 'Create New Purchase Order (PO)';
+    document.getElementById('general-modal-body').innerHTML = `
+      <form id="new-po-form" onsubmit="App.submitNewPO(event)">
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Select Supplier</label>
+            <select id="po-supplier" class="form-select" required>
+              <option value="">-- Choose Supplier --</option>
+              ${this.suppliersCache.map(s => `<option value="${s.id}">${s.name}</option>`).join('')}
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Expected Delivery Date</label>
+            <input type="date" id="po-date" class="form-input" value="${new Date().toISOString().split('T')[0]}" required>
+          </div>
+        </div>
+
+        <div style="font-weight: 700; margin: 12px 0 6px;">Order Items:</div>
+        <div id="po-items-rows">
+          <div class="form-row po-row" style="margin-bottom: 8px;">
+            <select class="form-select po-item-prod" style="flex: 2;" required>
+              <option value="">-- Choose Inventory Product --</option>
+              ${this.productsCache.map(p => `<option value="${p.id}" data-cost="${p.cost_price}" data-unit="${p.unit}">${p.name} (Cost: ${p.cost_price})</option>`).join('')}
+            </select>
+            <input type="number" class="form-input po-item-qty" placeholder="Qty" style="flex: 1;" step="any" min="1" value="10" required>
+            <input type="number" class="form-input po-item-cost" placeholder="Unit Cost" style="flex: 1;" step="any" required>
+          </div>
+        </div>
+
+        <div class="form-group" style="margin-top: 14px;">
+          <label class="form-label">Purchase Order Notes / Instructions</label>
+          <input type="text" id="po-notes" class="form-input" placeholder="e.g. Standard delivery to Arusha warehouse">
+        </div>
+
+        <button type="submit" class="btn btn-primary" style="width: 100%;">Generate Purchase Order</button>
+      </form>
+    `;
+
+    // Hook auto cost fill on select change
+    const prodSelect = document.querySelector('.po-item-prod');
+    const costInput = document.querySelector('.po-item-cost');
+    prodSelect?.addEventListener('change', () => {
+      const selected = prodSelect.options[prodSelect.selectedIndex];
+      if (selected && selected.dataset.cost) {
+        costInput.value = selected.dataset.cost;
+      }
+    });
+
+    modal.classList.add('active');
+  },
+
+  async submitNewPO(e) {
+    e.preventDefault();
+    const supId = document.getElementById('po-supplier').value;
+    const expDate = document.getElementById('po-date').value;
+    const notes = document.getElementById('po-notes').value.trim();
+
+    const prodSelect = document.querySelector('.po-item-prod');
+    const qty = parseFloat(document.querySelector('.po-item-qty').value) || 0;
+    const cost = parseFloat(document.querySelector('.po-item-cost').value) || 0;
+    const selected = prodSelect.options[prodSelect.selectedIndex];
+
+    const items = [{
+      product_id: parseInt(prodSelect.value),
+      product_name: selected.text.split(' (Cost:')[0],
+      unit: selected.dataset.unit || 'pcs',
+      quantity_ordered: qty,
+      cost_price: cost,
+      total_price: qty * cost
+    }];
+
+    try {
+      const res = await API.createPurchaseOrder({
+        supplier_id: supId,
+        user_id: State.currentUser?.id,
+        subtotal: qty * cost,
+        total_amount: qty * cost,
+        expected_date: expDate,
+        notes: notes,
+        items: items
+      });
+      if (res && res.success) {
+        State.showToast('Purchase Order created!', 'success');
+        document.getElementById('general-modal').classList.remove('active');
+        this.renderSuppliers(document.getElementById('content-area'));
+      }
+    } catch (err) {
+      State.showToast(err.message, 'error');
+    }
+  },
+
+  showNewInvoiceModal(isProforma = false) {
+    const modal = document.getElementById('general-modal');
+    document.getElementById('general-modal-title').textContent = isProforma ? 'Create Proforma Invoice (Quotation)' : 'Create Official Sales Invoice';
+    document.getElementById('general-modal-body').innerHTML = `
+      <form id="new-inv-form" onsubmit="App.submitNewInvoice(event, ${isProforma})">
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Client / Customer</label>
+            <select id="inv-customer" class="form-select" required>
+              <option value="">-- Select Customer --</option>
+              ${this.customersCache.map(c => `<option value="${c.id}" data-name="${c.name}" data-phone="${c.phone || ''}">${c.name} (${c.phone || 'No phone'})</option>`).join('')}
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Due Date</label>
+            <input type="date" id="inv-due-date" class="form-input" value="${new Date(Date.now() + 14 * 86400000).toISOString().split('T')[0]}">
+          </div>
+        </div>
+
+        <div style="font-weight: 700; margin: 12px 0 6px;">Select Product & Billing:</div>
+        <div class="form-row" style="margin-bottom: 8px;">
+          <select id="inv-prod" class="form-select" style="flex: 2;" required>
+            <option value="">-- Choose Product --</option>
+            ${this.productsCache.map(p => `<option value="${p.id}" data-price="${p.selling_price}" data-unit="${p.unit}">${p.name} (${State.formatMoney(p.selling_price)})</option>`).join('')}
+          </select>
+          <input type="number" id="inv-qty" class="form-input" placeholder="Quantity" style="flex: 1;" step="any" min="1" value="1" required>
+          <input type="number" id="inv-price" class="form-input" placeholder="Unit Price" style="flex: 1;" step="any" required>
+        </div>
+
+        ${!isProforma ? `
+          <div class="form-row" style="margin-top: 10px;">
+            <div class="form-group">
+              <label class="form-label">Amount Paid Upfront</label>
+              <input type="number" id="inv-amount-paid" class="form-input" step="any" value="0">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Payment Method</label>
+              <select id="inv-pay-method" class="form-select">
+                <option value="BANK">Bank Deposit / CRDB</option>
+                <option value="CASH">Cash in Drawer</option>
+                <option value="MPESA">M-Pesa</option>
+                <option value="CREDIT">On Credit (Debtor)</option>
+              </select>
+            </div>
+          </div>
+        ` : ''}
+
+        <div class="form-group">
+          <label class="form-label">Invoice Notes</label>
+          <input type="text" id="inv-notes" class="form-input" placeholder="e.g. Deliver to site upon payment">
+        </div>
+
+        <button type="submit" class="btn btn-primary" style="width: 100%;">
+          ${isProforma ? 'Generate Proforma Quote' : 'Issue Commercial Invoice'}
+        </button>
+      </form>
+    `;
+
+    const pSelect = document.getElementById('inv-prod');
+    const pPrice = document.getElementById('inv-price');
+    pSelect?.addEventListener('change', () => {
+      const opt = pSelect.options[pSelect.selectedIndex];
+      if (opt && opt.dataset.price) pPrice.value = opt.dataset.price;
+    });
+
+    modal.classList.add('active');
+  },
+
+  async submitNewInvoice(e, isProforma) {
+    e.preventDefault();
+    const custSelect = document.getElementById('inv-customer');
+    const custId = custSelect.value;
+    const custOpt = custSelect.options[custSelect.selectedIndex];
+    const dueDate = document.getElementById('inv-due-date')?.value;
+    const notes = document.getElementById('inv-notes')?.value.trim();
+
+    const pSelect = document.getElementById('inv-prod');
+    const pOpt = pSelect.options[pSelect.selectedIndex];
+    const qty = parseFloat(document.getElementById('inv-qty').value) || 1;
+    const price = parseFloat(document.getElementById('inv-price').value) || 0;
+    const amountPaid = isProforma ? 0 : (parseFloat(document.getElementById('inv-amount-paid')?.value || 0) || 0);
+    const payMethod = isProforma ? 'CASH' : (document.getElementById('inv-pay-method')?.value || 'BANK');
+
+    const total = qty * price;
+    const orderData = {
+      order_type: isProforma ? 'PROFORMA' : 'INVOICE',
+      user_id: State.currentUser?.id,
+      customer_id: custId ? parseInt(custId) : null,
+      customer_name: custOpt.dataset.name,
+      customer_phone: custOpt.dataset.phone,
+      subtotal: total,
+      discount: 0,
+      tax: 0,
+      total: total,
+      amount_paid: amountPaid,
+      payment_method: payMethod,
+      due_date: dueDate,
+      notes: notes,
+      items: [{
+        product_id: parseInt(pSelect.value),
+        product_name: pOpt.text.split(' (')[0],
+        unit: pOpt.dataset.unit || 'pcs',
+        quantity: qty,
+        unit_price: price,
+        total_price: total
+      }]
+    };
+
+    try {
+      const res = await API.createOrder(orderData);
+      if (res && res.success) {
+        State.showToast(`${isProforma ? 'Proforma' : 'Invoice'} created successfully!`, 'success');
+        document.getElementById('general-modal').classList.remove('active');
+        if (isProforma) {
+          this.navigate('proforma');
+        } else {
+          this.navigate('invoices');
+        }
+      }
+    } catch (err) {
+      State.showToast(err.message, 'error');
+    }
+  },
+
+  showStandaloneDeliveryNoteModal() {
+    const modal = document.getElementById('general-modal');
+    document.getElementById('general-modal-title').textContent = 'Generate Delivery Note';
+    document.getElementById('general-modal-body').innerHTML = `
+      <form id="standalone-dn-form" onsubmit="App.submitDeliveryNote(event)">
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Customer / Recipient Name</label>
+            <input type="text" id="dn-cust-name" class="form-input" placeholder="e.g. Serengeti Builders" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Recipient Phone</label>
+            <input type="text" id="dn-cust-phone" class="form-input" placeholder="07xxxxxxxx">
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Delivery Destination Address</label>
+          <input type="text" id="dn-address" class="form-input" placeholder="e.g. Plot 44, Sakina Area, Arusha" required>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Transporter / Driver Name</label>
+            <input type="text" id="dn-transporter" class="form-input" placeholder="e.g. Peter Mushi">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Vehicle Registration No.</label>
+            <input type="text" id="dn-vehicle" class="form-input" placeholder="e.g. T 421 DXB">
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Special Delivery Remarks / Instructions</label>
+          <input type="text" id="dn-notes" class="form-input" placeholder="e.g. Offloading at rear entrance">
+        </div>
+
+        <button type="submit" class="btn btn-primary" style="width: 100%;">Issue Delivery Note</button>
+      </form>
+    `;
+    modal.classList.add('active');
+  },
+
+  async submitDeliveryNote(e) {
+    e.preventDefault();
+    const data = {
+      customer_name: document.getElementById('dn-cust-name').value.trim(),
+      customer_phone: document.getElementById('dn-cust-phone').value.trim(),
+      delivery_address: document.getElementById('dn-address').value.trim(),
+      transporter_name: document.getElementById('dn-transporter').value.trim(),
+      vehicle_number: document.getElementById('dn-vehicle').value.trim(),
+      notes: document.getElementById('dn-notes').value.trim(),
+      dispatched_by: State.currentUser?.id
+    };
+
+    try {
+      const res = await API.createDeliveryNote(data);
+      if (res && res.success) {
+        State.showToast('Delivery Note created', 'success');
+        document.getElementById('general-modal').classList.remove('active');
+        this.navigate('delivery-notes');
+      }
+    } catch (err) {
+      State.showToast(err.message, 'error');
+    }
+  },
+
+  async showDeliveryNoteModalFromInvoice(orderId) {
+    try {
+      const res = await API.getOrder(orderId);
+      const ord = res.order;
+      if (!ord) return;
+
+      const modal = document.getElementById('general-modal');
+      document.getElementById('general-modal-title').textContent = `Generate Delivery Note for Invoice ${ord.order_number}`;
+      document.getElementById('general-modal-body').innerHTML = `
+        <form id="inv-dn-form" onsubmit="App.submitDeliveryNoteFromInvoice(event, ${ord.id})">
+          <div class="form-group">
+            <label class="form-label">Recipient Customer</label>
+            <input type="text" id="idn-cust" class="form-input" value="${ord.customer_name}" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Delivery Destination Address</label>
+            <input type="text" id="idn-address" class="form-input" placeholder="Physical site address in Arusha" required>
+          </div>
+          <div class="form-row">
+            <div class="form-group">
+              <label class="form-label">Transporter / Driver Name</label>
+              <input type="text" id="idn-transporter" class="form-input" placeholder="Driver name">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Vehicle Registration No</label>
+              <input type="text" id="idn-vehicle" class="form-input" placeholder="e.g. T 123 ABC">
+            </div>
+          </div>
+          <button type="submit" class="btn btn-primary" style="width: 100%;">Create & Print Delivery Note</button>
+        </form>
+      `;
+      modal.classList.add('active');
+    } catch (e) {
+      State.showToast(e.message, 'error');
+    }
+  },
+
+  async submitDeliveryNoteFromInvoice(e, orderId) {
+    e.preventDefault();
+    const data = {
+      order_id: orderId,
+      customer_name: document.getElementById('idn-cust').value.trim(),
+      delivery_address: document.getElementById('idn-address').value.trim(),
+      transporter_name: document.getElementById('idn-transporter').value.trim(),
+      vehicle_number: document.getElementById('idn-vehicle').value.trim(),
+      dispatched_by: State.currentUser?.id
+    };
+
+    try {
+      const res = await API.createDeliveryNote(data);
+      if (res && res.success) {
+        State.showToast('Delivery note created', 'success');
+        document.getElementById('general-modal').classList.remove('active');
+        this.navigate('delivery-notes');
+      }
+    } catch (err) {
+      State.showToast(err.message, 'error');
+    }
+  }
+};
+
+// Bootstrap application on DOMContentLoaded
+document.addEventListener('DOMContentLoaded', () => {
+  App.init();
+});

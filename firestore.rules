@@ -1,0 +1,840 @@
+rules_version = '2';
+
+// ===============================================================
+// Assumed Data Model
+// ===============================================================
+//
+// This security rules file secures the JENGAKWANZA Limited business management system:
+//
+// 1. Collection: settings
+//    Document ID: setting key or category ID (e.g. 'company_info', 'cash_balance', 'pos_printer')
+//    Fields:
+//      - key: string (optional, 1-60 chars) - configuration key
+//      - value: string (optional, 0-2000 chars) - configuration value
+//      - company_name: string (optional, 1-100 chars)
+//      - phone_numbers: string (optional, 1-60 chars)
+//      - address: string (optional, 1-200 chars)
+//      - email: string (optional, valid email format)
+//      - currency / currency_symbol: string (optional, 1-10 chars)
+//      - tax_rate / tax_enabled: number/bool (optional)
+//      - cash_balance / bank_balance / mobile_money_balance: number/string (financial balance)
+//      - updated_at: timestamp/string (optional)
+//      - updated_by: string (optional, UID)
+//
+// 2. Collection: users
+//    Document ID: {userId} (Firebase Auth UID)
+//    Fields:
+//      - username: string (required, 3-50 chars) - unique login identifier
+//      - full_name: string (required, 2-100 chars) - worker legal name
+//      - role: string (required, 'Admin' | 'Manager' | 'Cashier' | 'Storekeeper' | 'Accountant')
+//      - phone: string (optional, 0-30 chars) - contact number
+//      - active: bool (required) - account active status
+//      - created_at: timestamp/string (required on create, immutable)
+//      - updated_at: timestamp/string (optional)
+//
+// 3. Collection: work_shifts
+//    Document ID: {shiftId}
+//    Fields:
+//      - user_id: string (required, worker UID, immutable)
+//      - worker_name: string (optional, 1-100 chars)
+//      - worker_role: string (optional, valid role)
+//      - work_date: string (required, YYYY-MM-DD format)
+//      - clock_in: timestamp/string (required, immutable)
+//      - clock_out: timestamp/string (optional)
+//      - opening_cash: number (required, >= 0, immutable)
+//      - closing_cash: number (optional, >= 0)
+//      - notes: string (optional, <= 1000 chars)
+//      - status: string (optional, 'OPEN' | 'CLOSED' | 'COMPLETED')
+//      - created_at: timestamp/string (required, immutable)
+//
+// 4. Collection: products
+//    Document ID: {productId}
+//    Fields:
+//      - sku: string (optional, <= 50 chars)
+//      - barcode: string (optional, <= 50 chars)
+//      - name: string (required, 1-150 chars)
+//      - category: string (required, 1-50 chars)
+//      - unit: string (required, 1-30 chars: pcs, bags, kg, meters, etc.)
+//      - cost_price: number (required, >= 0, buying price)
+//      - selling_price: number (required, >= 0)
+//      - stock_quantity: number (required, stock on hand)
+//      - min_alert_quantity: number (optional, >= 0)
+//      - description: string (optional, <= 1000 chars)
+//      - created_at: timestamp/string (required, immutable)
+//      - updated_at: timestamp/string (optional)
+//
+// 5. Collection: stock_movements
+//    Document ID: {movementId}
+//    Fields:
+//      - product_id: string (required, product doc ID, immutable)
+//      - product_name: string (optional, <= 150 chars)
+//      - user_id: string (required, worker UID, immutable)
+//      - movement_type: string (required, 'RESTOCK' | 'SALE' | 'RETURN' | 'ADJUSTMENT' | 'PO_RECEIVE' | 'DAMAGED')
+//      - quantity: number (required)
+//      - balance_after: number (required)
+//      - unit_cost: number (optional, >= 0)
+//      - reference_id: string (optional, order/PO ID, <= 100 chars)
+//      - notes: string (optional, <= 1000 chars)
+//      - created_at: timestamp/string (required, immutable)
+//
+// 6. Collection: customers
+//    Document ID: {customerId}
+//    Fields:
+//      - name: string (required, 1-150 chars)
+//      - phone: string (optional, <= 30 chars)
+//      - email: string (optional, valid email format)
+//      - address: string (optional, <= 300 chars)
+//      - credit_limit: number (optional, >= 0)
+//      - current_credit: number (optional, >= 0, outstanding balance)
+//      - notes: string (optional, <= 1000 chars)
+//      - created_at: timestamp/string (required, immutable)
+//      - updated_at: timestamp/string (optional)
+//
+// 7. Collection: orders
+//    Document ID: {orderId}
+//    Fields:
+//      - order_number: string (required, 1-60 chars, e.g. JK-POS-0001, immutable)
+//      - order_type: string (required, 'POS' | 'INVOICE' | 'PROFORMA')
+//      - user_id: string (required, worker UID, immutable)
+//      - worker_name: string (optional, <= 100 chars)
+//      - customer_id: string (optional, <= 128 chars)
+//      - customer_name: string (required, 1-150 chars)
+//      - customer_phone: string (optional, <= 30 chars)
+//      - subtotal: number (required, >= 0)
+//      - discount: number (optional, >= 0)
+//      - tax: number (optional, >= 0)
+//      - total: number (required, >= 0)
+//      - payment_method: string (required, 'CASH' | 'MPESA' | 'TIGO_PESA' | 'AIRTEL_MONEY' | 'BANK' | 'CREDIT')
+//      - payment_status: string (required, 'PAID' | 'PARTIAL' | 'UNPAID')
+//      - amount_paid: number (required, >= 0)
+//      - balance_due: number (required, >= 0)
+//      - due_date: string/timestamp (optional)
+//      - notes: string (optional, <= 1000 chars)
+//      - items: list of maps (optional, max 100 items)
+//      - created_at: timestamp/string (required, immutable)
+//      - updated_at: timestamp/string (optional)
+//
+// 8. Collection: delivery_notes
+//    Document ID: {dnId}
+//    Fields:
+//      - delivery_number: string (required, 1-60 chars, immutable)
+//      - order_id: string (optional, <= 128 chars)
+//      - customer_name: string (required, 1-150 chars)
+//      - customer_phone: string (optional, <= 30 chars)
+//      - delivery_address: string (required, 1-300 chars)
+//      - transporter_name: string (optional, <= 100 chars)
+//      - vehicle_number: string (optional, <= 50 chars)
+//      - dispatched_by: string (required, worker UID, immutable)
+//      - received_by_name: string (optional, <= 100 chars)
+//      - status: string (required, 'DISPATCHED' | 'DELIVERED' | 'RETURNED')
+//      - delivery_date: string/timestamp (optional)
+//      - notes: string (optional, <= 1000 chars)
+//      - items: list of maps (optional, max 100 items)
+//      - created_at: timestamp/string (required, immutable)
+//
+// 9. Collection: purchase_orders
+//    Document ID: {poId}
+//    Fields:
+//      - po_number: string (required, 1-60 chars, immutable)
+//      - supplier_id: string (required, <= 128 chars)
+//      - supplier_name: string (optional, <= 150 chars)
+//      - user_id: string (required, worker UID, immutable)
+//      - subtotal: number (optional, >= 0)
+//      - tax: number (optional, >= 0)
+//      - total_amount: number (required, >= 0)
+//      - status: string (required, 'PENDING' | 'APPROVED' | 'RECEIVED' | 'CANCELLED')
+//      - items: list of maps (optional, max 100 items)
+//      - expected_date: string/timestamp (optional)
+//      - received_date: string/timestamp (optional)
+//      - notes: string (optional, <= 1000 chars)
+//      - created_at: timestamp/string (required, immutable)
+//      - updated_at: timestamp/string (optional)
+//
+// 10. Collection: suppliers
+//     Document ID: {supplierId}
+//     Fields:
+//       - name: string (required, 1-150 chars)
+//       - contact_person: string (optional, <= 100 chars)
+//       - phone: string (optional, <= 30 chars)
+//       - email: string (optional, valid email format)
+//       - address: string (optional, <= 300 chars)
+//       - notes: string (optional, <= 1000 chars)
+//       - created_at: timestamp/string (required, immutable)
+//       - updated_at: timestamp/string (optional)
+//
+// 11. Collection: expenses
+//     Document ID: {expenseId}
+//     Fields:
+//       - expense_number: string (required, 1-60 chars, immutable)
+//       - user_id: string (required, worker UID, immutable)
+//       - worker_name: string (optional, <= 100 chars)
+//       - category: string (required, 1-60 chars: Rent, Transport, Wages, Fuel, etc.)
+//       - amount: number (required, > 0)
+//       - payment_method: string (required, 'CASH' | 'MPESA' | 'TIGO_PESA' | 'AIRTEL_MONEY' | 'BANK')
+//       - description: string (required, 1-600 chars)
+//       - expense_date: string/timestamp (required)
+//       - created_at: timestamp/string (required, immutable)
+//
+// 12. Collection: debtor_payments
+//     Document ID: {paymentId}
+//     Fields:
+//       - payment_number: string (required, 1-60 chars, immutable)
+//       - customer_id: string (required, <= 128 chars, immutable)
+//       - customer_name: string (optional, <= 150 chars)
+//       - user_id: string (required, worker UID, immutable)
+//       - order_id: string (optional, <= 128 chars)
+//       - amount: number (required, > 0)
+//       - payment_method: string (required, 'CASH' | 'MPESA' | 'TIGO_PESA' | 'AIRTEL_MONEY' | 'BANK')
+//       - payment_date: string/timestamp (required)
+//       - notes: string (optional, <= 1000 chars)
+//       - created_at: timestamp/string (required, immutable)
+//
+// 13. Collection: capital_ledger
+//     Document ID: {ledgerId}
+//     Fields:
+//       - entry_type: string (required, 'CAPITAL_INJECTION' | 'OWNER_DRAWING' | 'INITIAL_CAPITAL' | 'ADJUSTMENT')
+//       - amount: number (required, > 0)
+//       - account: string (required, 'CASH' | 'BANK' | 'MOBILE_MONEY')
+//       - description: string (required, 1-600 chars)
+//       - user_id: string (required, worker UID, immutable)
+//       - entry_date: string/timestamp (required)
+//       - created_at: timestamp/string (required, immutable)
+//
+// ===============================================================
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ===============================================================
+    // Global Default Deny
+    // ===============================================================
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // ===============================================================
+    // Core Helper Functions
+    // ===============================================================
+
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isAuthenticated() && request.auth.uid == userId;
+    }
+
+    function userDocExists() {
+      return isAuthenticated() && exists(/databases/$(database)/documents/users/$(request.auth.uid));
+    }
+
+    function getUserDoc() {
+      return get(/databases/$(database)/documents/users/$(request.auth.uid)).data;
+    }
+
+    // Role-based Access Control (Custom Claims OR Active User Document)
+    function hasRole(roleName) {
+      return isAuthenticated() && (
+        request.auth.token.role == roleName ||
+        (userDocExists() && getUserDoc().role == roleName && getUserDoc().active == true)
+      );
+    }
+
+    function hasAnyRole(rolesList) {
+      return isAuthenticated() && (
+        (request.auth.token.role in rolesList) ||
+        (userDocExists() && getUserDoc().role in rolesList && getUserDoc().active == true)
+      );
+    }
+
+    function isAdmin() {
+      return isAuthenticated() && (
+        request.auth.token.email == 'jengakwanzaltd@gmail.com' ||
+        hasRole('Admin')
+      );
+    }
+
+    function isManager() {
+      return hasRole('Manager');
+    }
+
+    function isAdminOrManager() {
+      return isAdmin() || isManager();
+    }
+
+    function isAccountant() {
+      return hasRole('Accountant');
+    }
+
+    function isStorekeeper() {
+      return hasRole('Storekeeper');
+    }
+
+    function isCashier() {
+      return hasRole('Cashier');
+    }
+
+    // General Validation Helpers
+    function hasRequiredFields(fields) {
+      return request.resource.data.keys().hasAll(fields);
+    }
+
+    function hasOnlyAllowedFields(fields) {
+      return request.resource.data.keys().hasOnly(fields);
+    }
+
+    function areImmutableFieldsUnchanged(fields) {
+      return !request.resource.data.diff(resource.data).affectedKeys().hasAny(fields);
+    }
+
+    function isValidEmail(email) {
+      return email is string &&
+        email.matches("^[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\\.[a-zA-Z]{2,}$");
+    }
+
+    function isValidDateOrTimestamp(val) {
+      return val is timestamp ||
+        (val is string && val.size() >= 8 && val.size() <= 35);
+    }
+
+    // ===============================================================
+    // Domain Validator Functions
+    // ===============================================================
+
+    // 1. Settings Validator
+    function isValidSettings(data) {
+      return hasOnlyAllowedFields([
+        'key', 'value', 'company_name', 'tagline', 'phone_numbers', 'address',
+        'email', 'currency', 'currency_symbol', 'tax_rate', 'tax_enabled',
+        'receipt_footer', 'pos_printer_type', 'cash_balance', 'bank_balance',
+        'mobile_money_balance', 'updated_at', 'updated_by'
+      ]) &&
+      (!('company_name' in data) || (data.company_name is string && data.company_name.size() <= 100)) &&
+      (!('email' in data) || (data.email is string && (data.email == '' || isValidEmail(data.email)))) &&
+      (!('currency' in data) || (data.currency is string && data.currency.size() <= 10)) &&
+      (!('cash_balance' in data) || (data.cash_balance is number || data.cash_balance is string)) &&
+      (!('bank_balance' in data) || (data.bank_balance is number || data.bank_balance is string)) &&
+      (!('mobile_money_balance' in data) || (data.mobile_money_balance is number || data.mobile_money_balance is string)) &&
+      (!('key' in data) || (data.key is string && data.key.size() <= 60)) &&
+      (!('value' in data) || (data.value is string && data.value.size() <= 2000));
+    }
+
+    // 2. Users Validator
+    function isValidUser(data) {
+      return hasRequiredFields(['username', 'full_name', 'role', 'active']) &&
+        hasOnlyAllowedFields(['username', 'full_name', 'role', 'phone', 'active', 'created_at', 'updated_at']) &&
+        data.username is string && data.username.size() >= 3 && data.username.size() <= 50 &&
+        data.full_name is string && data.full_name.size() >= 2 && data.full_name.size() <= 100 &&
+        data.role in ['Admin', 'Manager', 'Cashier', 'Storekeeper', 'Accountant'] &&
+        data.active is bool &&
+        (!('phone' in data) || (data.phone is string && data.phone.size() <= 30));
+    }
+
+    // 3. Work Shifts Validator
+    function isValidWorkShift(data) {
+      return hasRequiredFields(['user_id', 'work_date', 'clock_in', 'opening_cash']) &&
+        hasOnlyAllowedFields([
+          'user_id', 'worker_name', 'worker_role', 'work_date', 'clock_in',
+          'clock_out', 'opening_cash', 'closing_cash', 'notes', 'status',
+          'created_at', 'updated_at'
+        ]) &&
+        data.user_id is string && data.user_id.size() >= 1 && data.user_id.size() <= 128 &&
+        data.work_date is string && data.work_date.size() >= 8 && data.work_date.size() <= 20 &&
+        data.opening_cash is number && data.opening_cash >= 0 &&
+        (!('closing_cash' in data) || (data.closing_cash is number && data.closing_cash >= 0)) &&
+        (!('worker_name' in data) || (data.worker_name is string && data.worker_name.size() <= 100)) &&
+        (!('worker_role' in data) || (data.worker_role is string && data.worker_role in ['Admin', 'Manager', 'Cashier', 'Storekeeper', 'Accountant'])) &&
+        (!('notes' in data) || (data.notes is string && data.notes.size() <= 1000)) &&
+        (!('status' in data) || (data.status is string && data.status in ['OPEN', 'CLOSED', 'COMPLETED']));
+    }
+
+    // 4. Products Validator
+    function isValidProduct(data) {
+      return hasRequiredFields(['name', 'category', 'unit', 'cost_price', 'selling_price', 'stock_quantity']) &&
+        hasOnlyAllowedFields([
+          'sku', 'barcode', 'name', 'category', 'unit', 'cost_price',
+          'selling_price', 'stock_quantity', 'min_alert_quantity', 'description',
+          'created_at', 'updated_at'
+        ]) &&
+        data.name is string && data.name.size() >= 1 && data.name.size() <= 150 &&
+        data.category is string && data.category.size() >= 1 && data.category.size() <= 50 &&
+        data.unit is string && data.unit.size() >= 1 && data.unit.size() <= 30 &&
+        data.cost_price is number && data.cost_price >= 0 &&
+        data.selling_price is number && data.selling_price >= 0 &&
+        data.stock_quantity is number &&
+        (!('min_alert_quantity' in data) || (data.min_alert_quantity is number && data.min_alert_quantity >= 0)) &&
+        (!('sku' in data) || (data.sku is string && data.sku.size() <= 50)) &&
+        (!('barcode' in data) || (data.barcode is string && data.barcode.size() <= 50)) &&
+        (!('description' in data) || (data.description is string && data.description.size() <= 1000));
+    }
+
+    // 5. Stock Movements Validator
+    function isValidStockMovement(data) {
+      return hasRequiredFields(['product_id', 'movement_type', 'quantity', 'balance_after']) &&
+        hasOnlyAllowedFields([
+          'product_id', 'product_name', 'user_id', 'movement_type', 'quantity',
+          'balance_after', 'unit_cost', 'reference_id', 'notes', 'created_at'
+        ]) &&
+        data.product_id is string && data.product_id.size() >= 1 && data.product_id.size() <= 128 &&
+        data.movement_type in ['RESTOCK', 'SALE', 'RETURN', 'ADJUSTMENT', 'PO_RECEIVE', 'DAMAGED'] &&
+        data.quantity is number &&
+        data.balance_after is number &&
+        (!('unit_cost' in data) || (data.unit_cost is number && data.unit_cost >= 0)) &&
+        (!('reference_id' in data) || (data.reference_id is string && data.reference_id.size() <= 100)) &&
+        (!('notes' in data) || (data.notes is string && data.notes.size() <= 1000)) &&
+        (!('user_id' in data) || (data.user_id is string && data.user_id.size() <= 128));
+    }
+
+    // 6. Customers Validator
+    function isValidCustomer(data) {
+      return hasRequiredFields(['name']) &&
+        hasOnlyAllowedFields([
+          'name', 'phone', 'email', 'address', 'credit_limit', 'current_credit',
+          'notes', 'created_at', 'updated_at'
+        ]) &&
+        data.name is string && data.name.size() >= 1 && data.name.size() <= 150 &&
+        (!('phone' in data) || (data.phone is string && data.phone.size() <= 30)) &&
+        (!('email' in data) || (data.email is string && (data.email == '' || isValidEmail(data.email)))) &&
+        (!('address' in data) || (data.address is string && data.address.size() <= 300)) &&
+        (!('credit_limit' in data) || (data.credit_limit is number && data.credit_limit >= 0)) &&
+        (!('current_credit' in data) || (data.current_credit is number && data.current_credit >= 0)) &&
+        (!('notes' in data) || (data.notes is string && data.notes.size() <= 1000));
+    }
+
+    // 7. Orders Validator
+    function isValidOrder(data) {
+      return hasRequiredFields([
+        'order_number', 'order_type', 'customer_name', 'subtotal', 'total',
+        'payment_method', 'payment_status', 'amount_paid', 'balance_due'
+      ]) &&
+      hasOnlyAllowedFields([
+        'order_number', 'order_type', 'user_id', 'worker_name', 'customer_id',
+        'customer_name', 'customer_phone', 'subtotal', 'discount', 'tax',
+        'total', 'payment_method', 'payment_status', 'amount_paid', 'balance_due',
+        'due_date', 'notes', 'items', 'created_at', 'updated_at'
+      ]) &&
+      data.order_number is string && data.order_number.size() >= 1 && data.order_number.size() <= 60 &&
+      data.order_type in ['POS', 'INVOICE', 'PROFORMA'] &&
+      data.customer_name is string && data.customer_name.size() >= 1 && data.customer_name.size() <= 150 &&
+      data.subtotal is number && data.subtotal >= 0 &&
+      data.total is number && data.total >= 0 &&
+      data.payment_method in ['CASH', 'MPESA', 'TIGO_PESA', 'AIRTEL_MONEY', 'BANK', 'CREDIT'] &&
+      data.payment_status in ['PAID', 'PARTIAL', 'UNPAID'] &&
+      data.amount_paid is number && data.amount_paid >= 0 &&
+      data.balance_due is number && data.balance_due >= 0 &&
+      (!('discount' in data) || (data.discount is number && data.discount >= 0)) &&
+      (!('tax' in data) || (data.tax is number && data.tax >= 0)) &&
+      (!('items' in data) || (data.items is list && data.items.size() <= 100)) &&
+      (!('notes' in data) || (data.notes is string && data.notes.size() <= 1000));
+    }
+
+    // 8. Delivery Notes Validator
+    function isValidDeliveryNote(data) {
+      return hasRequiredFields(['delivery_number', 'customer_name', 'delivery_address', 'status']) &&
+        hasOnlyAllowedFields([
+          'delivery_number', 'order_id', 'order_number', 'customer_name',
+          'customer_phone', 'delivery_address', 'transporter_name', 'vehicle_number',
+          'dispatched_by', 'received_by_name', 'status', 'delivery_date', 'notes',
+          'items', 'created_at', 'updated_at'
+        ]) &&
+        data.delivery_number is string && data.delivery_number.size() >= 1 && data.delivery_number.size() <= 60 &&
+        data.customer_name is string && data.customer_name.size() >= 1 && data.customer_name.size() <= 150 &&
+        data.delivery_address is string && data.delivery_address.size() >= 1 && data.delivery_address.size() <= 300 &&
+        data.status in ['DISPATCHED', 'DELIVERED', 'RETURNED'] &&
+        (!('transporter_name' in data) || (data.transporter_name is string && data.transporter_name.size() <= 100)) &&
+        (!('vehicle_number' in data) || (data.vehicle_number is string && data.vehicle_number.size() <= 50)) &&
+        (!('received_by_name' in data) || (data.received_by_name is string && data.received_by_name.size() <= 100)) &&
+        (!('notes' in data) || (data.notes is string && data.notes.size() <= 1000)) &&
+        (!('items' in data) || (data.items is list && data.items.size() <= 100));
+    }
+
+    // 9. Purchase Orders Validator
+    function isValidPurchaseOrder(data) {
+      return hasRequiredFields(['po_number', 'supplier_id', 'status', 'total_amount']) &&
+        hasOnlyAllowedFields([
+          'po_number', 'supplier_id', 'supplier_name', 'user_id', 'subtotal',
+          'tax', 'total_amount', 'status', 'items', 'expected_date', 'received_date',
+          'notes', 'created_at', 'updated_at'
+        ]) &&
+        data.po_number is string && data.po_number.size() >= 1 && data.po_number.size() <= 60 &&
+        data.supplier_id is string && data.supplier_id.size() >= 1 && data.supplier_id.size() <= 128 &&
+        data.status in ['PENDING', 'APPROVED', 'RECEIVED', 'CANCELLED'] &&
+        data.total_amount is number && data.total_amount >= 0 &&
+        (!('subtotal' in data) || (data.subtotal is number && data.subtotal >= 0)) &&
+        (!('tax' in data) || (data.tax is number && data.tax >= 0)) &&
+        (!('supplier_name' in data) || (data.supplier_name is string && data.supplier_name.size() <= 150)) &&
+        (!('notes' in data) || (data.notes is string && data.notes.size() <= 1000)) &&
+        (!('items' in data) || (data.items is list && data.items.size() <= 100));
+    }
+
+    // 10. Suppliers Validator
+    function isValidSupplier(data) {
+      return hasRequiredFields(['name']) &&
+        hasOnlyAllowedFields([
+          'name', 'contact_person', 'phone', 'email', 'address', 'notes',
+          'created_at', 'updated_at'
+        ]) &&
+        data.name is string && data.name.size() >= 1 && data.name.size() <= 150 &&
+        (!('contact_person' in data) || (data.contact_person is string && data.contact_person.size() <= 100)) &&
+        (!('phone' in data) || (data.phone is string && data.phone.size() <= 30)) &&
+        (!('email' in data) || (data.email is string && (data.email == '' || isValidEmail(data.email)))) &&
+        (!('address' in data) || (data.address is string && data.address.size() <= 300)) &&
+        (!('notes' in data) || (data.notes is string && data.notes.size() <= 1000));
+    }
+
+    // 11. Expenses Validator
+    function isValidExpense(data) {
+      return hasRequiredFields(['expense_number', 'category', 'amount', 'payment_method', 'description']) &&
+        hasOnlyAllowedFields([
+          'expense_number', 'user_id', 'worker_name', 'category', 'amount',
+          'payment_method', 'description', 'expense_date', 'created_at', 'updated_at'
+        ]) &&
+        data.expense_number is string && data.expense_number.size() >= 1 && data.expense_number.size() <= 60 &&
+        data.category is string && data.category.size() >= 1 && data.category.size() <= 60 &&
+        data.amount is number && data.amount > 0 &&
+        data.payment_method in ['CASH', 'MPESA', 'TIGO_PESA', 'AIRTEL_MONEY', 'BANK'] &&
+        data.description is string && data.description.size() >= 1 && data.description.size() <= 600;
+    }
+
+    // 12. Debtor Payments Validator
+    function isValidDebtorPayment(data) {
+      return hasRequiredFields(['payment_number', 'customer_id', 'amount', 'payment_method']) &&
+        hasOnlyAllowedFields([
+          'payment_number', 'customer_id', 'customer_name', 'user_id', 'worker_name',
+          'order_id', 'amount', 'payment_method', 'payment_date', 'notes', 'created_at'
+        ]) &&
+        data.payment_number is string && data.payment_number.size() >= 1 && data.payment_number.size() <= 60 &&
+        data.customer_id is string && data.customer_id.size() >= 1 && data.customer_id.size() <= 128 &&
+        data.amount is number && data.amount > 0 &&
+        data.payment_method in ['CASH', 'MPESA', 'TIGO_PESA', 'AIRTEL_MONEY', 'BANK'] &&
+        (!('customer_name' in data) || (data.customer_name is string && data.customer_name.size() <= 150)) &&
+        (!('order_id' in data) || (data.order_id is string && data.order_id.size() <= 128)) &&
+        (!('notes' in data) || (data.notes is string && data.notes.size() <= 1000));
+    }
+
+    // 13. Capital Ledger Validator
+    function isValidCapitalEntry(data) {
+      return hasRequiredFields(['entry_type', 'amount', 'account', 'description']) &&
+        hasOnlyAllowedFields([
+          'entry_type', 'amount', 'account', 'description', 'user_id',
+          'worker_name', 'entry_date', 'created_at'
+        ]) &&
+        data.entry_type in ['CAPITAL_INJECTION', 'OWNER_DRAWING', 'INITIAL_CAPITAL', 'ADJUSTMENT'] &&
+        data.amount is number && data.amount > 0 &&
+        data.account in ['CASH', 'BANK', 'MOBILE_MONEY'] &&
+        data.description is string && data.description.size() >= 1 && data.description.size() <= 600;
+    }
+
+    // ===============================================================
+    // Collection Rules
+    // ===============================================================
+
+    // ---------------------------------------------------------------
+    // 1. Settings Collection
+    // ---------------------------------------------------------------
+    match /settings/{settingId} {
+      // Financial balance docs are restricted to Admin, Manager, and Accountant.
+      // General company branding / POS settings are readable by all authenticated workers.
+      allow read: if isAuthenticated() && (
+        !(settingId in ['financial', 'financial_balances', 'cash_balance', 'bank_balance', 'mobile_money_balance', 'credentials']) ||
+        isAdminOrManager() ||
+        isAccountant()
+      );
+
+      // Only System Administrators can configure business settings and opening balances
+      allow create: if isAdmin() && isValidSettings(request.resource.data);
+      allow update: if isAdmin() && isValidSettings(request.resource.data);
+      allow delete: if isAdmin();
+    }
+
+    // ---------------------------------------------------------------
+    // 2. Users Collection (Worker Directory & Profiles)
+    // ---------------------------------------------------------------
+    match /users/{userId} {
+      // Workers can read their own profile; Admin and Manager can read all worker profiles
+      allow read: if isOwner(userId) || isAdminOrManager();
+
+      // Only Admin (or initial bootstrap admin with verified company email) can create workers
+      allow create: if isValidUser(request.resource.data) && (
+        isAdmin() ||
+        (request.auth.token.email == 'jengakwanzaltd@gmail.com' &&
+         isOwner(userId) &&
+         request.resource.data.role == 'Admin')
+      );
+
+      // Admin can update worker profiles and roles.
+      // Workers may update their own profile ONLY if privileges (role, active, username) are unaltered.
+      allow update: if isValidUser(request.resource.data) && (
+        isAdmin() ||
+        (isOwner(userId) &&
+         areImmutableFieldsUnchanged(['role', 'active', 'username', 'created_at']))
+      );
+
+      // Only Admin can delete worker profiles
+      allow delete: if isAdmin();
+    }
+
+    // ---------------------------------------------------------------
+    // 3. Work Shifts Collection (Daily Attendance & Cash Drawers)
+    // ---------------------------------------------------------------
+    match /work_shifts/{shiftId} {
+      // Management & Accountants can view all shifts; workers can view their own shifts
+      allow read: if isAdminOrManager() ||
+                     isAccountant() ||
+                     (isAuthenticated() && resource.data.user_id == request.auth.uid);
+
+      // Workers can clock into their own shift; Managers/Admin can register shifts
+      allow create: if isAuthenticated() &&
+                       isValidWorkShift(request.resource.data) &&
+                       (request.resource.data.user_id == request.auth.uid || isAdminOrManager());
+
+      // Worker can clock out their own open shift; Managers/Admin can correct shifts
+      allow update: if isAuthenticated() &&
+                       isValidWorkShift(request.resource.data) && (
+                         isAdminOrManager() ||
+                         (resource.data.user_id == request.auth.uid &&
+                          areImmutableFieldsUnchanged(['user_id', 'work_date', 'clock_in', 'opening_cash', 'created_at']))
+                       );
+
+      // Only Admin can delete shift records
+      allow delete: if isAdmin();
+    }
+
+    // ---------------------------------------------------------------
+    // 4. Products Collection (Inventory & Stock Catalog)
+    // ---------------------------------------------------------------
+    match /products/{productId} {
+      // All authenticated staff need to view products and prices for POS and catalog searches
+      allow read: if isAuthenticated();
+
+      // Inventory managers (Admin, Manager, Storekeeper) can create new products
+      allow create: if (isAdminOrManager() || isStorekeeper()) &&
+                       isValidProduct(request.resource.data);
+
+      // Full updates by Admin, Manager, Storekeeper.
+      // Cashiers can update stock_quantity on sale while keeping pricing and catalog metadata immutable.
+      allow update: if isValidProduct(request.resource.data) && (
+        isAdminOrManager() ||
+        isStorekeeper() ||
+        (isCashier() && areImmutableFieldsUnchanged([
+          'name', 'sku', 'barcode', 'category', 'unit',
+          'cost_price', 'selling_price', 'min_alert_quantity', 'created_at'
+        ]))
+      );
+
+      // Only Admin and Manager can delete products
+      allow delete: if isAdminOrManager();
+    }
+
+    // ---------------------------------------------------------------
+    // 5. Stock Movements Collection (Audit Trail)
+    // ---------------------------------------------------------------
+    match /stock_movements/{movementId} {
+      // Stock audit logs are viewable by management, storekeeper, and accountant
+      allow read: if isAdminOrManager() || isStorekeeper() || isAccountant();
+
+      // Staff can append stock movement logs (Sales, Adjustments, Restocks)
+      allow create: if isAuthenticated() &&
+                       isValidStockMovement(request.resource.data) &&
+                       (isAdminOrManager() || isStorekeeper() || isCashier()) &&
+                       (!('user_id' in request.resource.data) || request.resource.data.user_id == request.auth.uid || isAdminOrManager());
+
+      // Stock movements are strictly append-only audit records: no tampering
+      allow update: if false;
+
+      // Only Admin can purge movements (for compliance/maintenance)
+      allow delete: if isAdmin();
+    }
+
+    // ---------------------------------------------------------------
+    // 6. Customers Collection (Client Directory & Credit Limits)
+    // ---------------------------------------------------------------
+    match /customers/{customerId} {
+      // All authenticated workers can read customer records for orders, invoicing, and dispatch
+      allow read: if isAuthenticated();
+
+      // Cashiers, Accountants, Managers, and Admins can create customers
+      allow create: if (isAdminOrManager() || isAccountant() || isCashier()) &&
+                       isValidCustomer(request.resource.data);
+
+      // Managers and Accountants can update customer details and credit limits.
+      // Cashiers can update contact info or current debt balance on sale, but cannot alter credit_limit.
+      allow update: if isValidCustomer(request.resource.data) && (
+        isAdminOrManager() ||
+        isAccountant() ||
+        (isCashier() && areImmutableFieldsUnchanged(['credit_limit', 'created_at']))
+      );
+
+      // Only Admin and Manager can delete customers
+      allow delete: if isAdminOrManager();
+    }
+
+    // ---------------------------------------------------------------
+    // 7. Orders Collection (POS Sales, Invoices, Proformas)
+    // ---------------------------------------------------------------
+    match /orders/{orderId} {
+      // All authenticated workers can view orders for checkout, history, and receipts
+      allow read: if isAuthenticated();
+
+      // Cashiers, Accountants, and Managers can record sales and invoices
+      allow create: if (isAdminOrManager() || isCashier() || isAccountant()) &&
+                       isValidOrder(request.resource.data) &&
+                       (request.resource.data.user_id == request.auth.uid || isAdminOrManager());
+
+      // Management and Accountants can update orders.
+      // Cashiers can update order status/payment on their own orders with immutable identity.
+      allow update: if isValidOrder(request.resource.data) && (
+        isAdminOrManager() ||
+        isAccountant() ||
+        (isCashier() &&
+         resource.data.user_id == request.auth.uid &&
+         areImmutableFieldsUnchanged(['order_number', 'user_id', 'created_at']))
+      );
+
+      // Only Admin can cancel/delete order transactions
+      allow delete: if isAdmin();
+
+      // Optional nested order items subcollection
+      match /items/{itemId} {
+        allow read: if isAuthenticated();
+        allow create, update: if isAdminOrManager() || isCashier() || isAccountant();
+        allow delete: if isAdmin();
+      }
+    }
+
+    // ---------------------------------------------------------------
+    // 8. Delivery Notes Collection (Dispatch Records)
+    // ---------------------------------------------------------------
+    match /delivery_notes/{dnId} {
+      // All authenticated workers can view delivery notes
+      allow read: if isAuthenticated();
+
+      // Storekeeper, Manager, and Admin can dispatch goods
+      allow create: if (isAdminOrManager() || isStorekeeper()) &&
+                       isValidDeliveryNote(request.resource.data) &&
+                       (request.resource.data.dispatched_by == request.auth.uid || isAdminOrManager());
+
+      // Storekeeper and Managers can update status (e.g. DELIVERED) and transporter details
+      allow update: if (isAdminOrManager() || isStorekeeper()) &&
+                       isValidDeliveryNote(request.resource.data) &&
+                       areImmutableFieldsUnchanged(['delivery_number', 'dispatched_by', 'created_at']);
+
+      // Only Admin and Manager can delete delivery notes
+      allow delete: if isAdminOrManager();
+    }
+
+    // ---------------------------------------------------------------
+    // 9. Purchase Orders Collection (Procurement)
+    // ---------------------------------------------------------------
+    match /purchase_orders/{poId} {
+      // Purchasing records are viewable by Admin, Manager, Storekeeper, and Accountant
+      allow read: if isAdminOrManager() || isStorekeeper() || isAccountant();
+
+      // Procurement orders can be initiated by Management, Storekeeper, or Accountant
+      allow create: if (isAdminOrManager() || isStorekeeper() || isAccountant()) &&
+                       isValidPurchaseOrder(request.resource.data) &&
+                       (request.resource.data.user_id == request.auth.uid || isAdminOrManager());
+
+      // Admin and Manager can approve/modify any PO.
+      // Storekeepers can update status to 'RECEIVED' when receiving stock.
+      allow update: if isValidPurchaseOrder(request.resource.data) && (
+        isAdminOrManager() ||
+        (isStorekeeper() && areImmutableFieldsUnchanged([
+          'po_number', 'supplier_id', 'user_id', 'subtotal', 'total_amount', 'created_at'
+        ]))
+      );
+
+      // Only Admin can cancel/delete purchase orders
+      allow delete: if isAdmin();
+
+      // Optional nested PO items subcollection
+      match /items/{itemId} {
+        allow read: if isAdminOrManager() || isStorekeeper() || isAccountant();
+        allow create, update: if isAdminOrManager() || isStorekeeper() || isAccountant();
+        allow delete: if isAdmin();
+      }
+    }
+
+    // ---------------------------------------------------------------
+    // 10. Suppliers Collection (Vendor Directory)
+    // ---------------------------------------------------------------
+    match /suppliers/{supplierId} {
+      // Suppliers directory accessible by purchasing and management roles
+      allow read: if isAdminOrManager() || isStorekeeper() || isAccountant();
+
+      // Admin, Manager, Storekeeper, Accountant can create and maintain suppliers
+      allow create: if (isAdminOrManager() || isStorekeeper() || isAccountant()) &&
+                       isValidSupplier(request.resource.data);
+
+      allow update: if (isAdminOrManager() || isStorekeeper() || isAccountant()) &&
+                       isValidSupplier(request.resource.data) &&
+                       areImmutableFieldsUnchanged(['created_at']);
+
+      // Only Admin and Manager can delete suppliers
+      allow delete: if isAdminOrManager();
+    }
+
+    // ---------------------------------------------------------------
+    // 11. Expenses Collection (Daily Business Expense Vouchers)
+    // ---------------------------------------------------------------
+    match /expenses/{expenseId} {
+      // Expenses are confidential to Management and Accountants
+      allow read: if isAdminOrManager() || isAccountant();
+
+      // Management, Accountants, or Cashiers (petty cash vouchers) can record expenses
+      allow create: if isAuthenticated() &&
+                       isValidExpense(request.resource.data) &&
+                       (isAdminOrManager() || isAccountant() || (isCashier() && request.resource.data.user_id == request.auth.uid));
+
+      // Only Management and Accountants can update expense vouchers
+      allow update: if (isAdminOrManager() || isAccountant()) &&
+                       isValidExpense(request.resource.data) &&
+                       areImmutableFieldsUnchanged(['expense_number', 'user_id', 'created_at']);
+
+      // Only Admin can delete expense records
+      allow delete: if isAdmin();
+    }
+
+    // ---------------------------------------------------------------
+    // 12. Debtor Payments Collection (Customer Debt Repayments)
+    // ---------------------------------------------------------------
+    match /debtor_payments/{paymentId} {
+      // All authenticated staff can view debtor payments for customer receipts
+      allow read: if isAuthenticated();
+
+      // Cashiers, Accountants, and Management can collect debtor payments
+      allow create: if (isAdminOrManager() || isAccountant() || isCashier()) &&
+                       isValidDebtorPayment(request.resource.data) &&
+                       (request.resource.data.user_id == request.auth.uid || isAdminOrManager());
+
+      // Only Management and Accountants can adjust payment details
+      allow update: if (isAdminOrManager() || isAccountant()) &&
+                       isValidDebtorPayment(request.resource.data) &&
+                       areImmutableFieldsUnchanged(['payment_number', 'customer_id', 'user_id', 'created_at']);
+
+      // Only Admin can delete debtor payments
+      allow delete: if isAdmin();
+    }
+
+    // ---------------------------------------------------------------
+    // 13. Capital Ledger Collection (Capital Injections & Drawings)
+    // ---------------------------------------------------------------
+    match /capital_ledger/{ledgerId} {
+      // Highly sensitive: strictly restricted to Admin and Accountant
+      allow read: if isAdmin() || isAccountant();
+
+      // Capital entries can only be posted by Admin or Accountant
+      allow create: if (isAdmin() || isAccountant()) &&
+                       isValidCapitalEntry(request.resource.data) &&
+                       (request.resource.data.user_id == request.auth.uid || isAdmin());
+
+      // Only Admin can modify or reverse capital entries
+      allow update: if isAdmin() &&
+                       isValidCapitalEntry(request.resource.data) &&
+                       areImmutableFieldsUnchanged(['created_at', 'user_id']);
+
+      // Only Admin can delete capital ledger entries
+      allow delete: if isAdmin();
+    }
+  }
+}
