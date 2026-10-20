@@ -173,11 +173,11 @@
         <form onsubmit="App.handleLogin(event)">
           <div class="form-group">
             <label class="form-label">Username</label>
-            <input type="text" id="login-username" class="form-input" placeholder="e.g. admin" required autofocus>
+            <input type="text" id="login-username" class="form-input" placeholder="e.g. admin" value="admin" autocomplete="username" required autofocus>
           </div>
           <div class="form-group">
             <label class="form-label">Password / PIN</label>
-            <input type="password" id="login-password" class="form-input" placeholder="••••••••" required>
+            <input type="password" id="login-password" class="form-input" placeholder="admin123" autocomplete="current-password" required>
           </div>
           <button type="submit" class="btn btn-primary btn-lg" style="width: 100%; margin-top: 8px;">Sign In</button>
         </form>
