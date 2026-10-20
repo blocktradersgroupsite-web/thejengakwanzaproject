@@ -47,7 +47,7 @@
 
       <div id="auth-error-alert" class="auth-alert" style="display: none;"></div>
 
-      <form id="auth-form" onsubmit="App.handleLogin(event)" class="auth-form" autocomplete="on">
+      <form id="auth-form" action="javascript:void(0);" onsubmit="App.handleLogin(event); return false;" class="auth-form" autocomplete="on">
         <div class="auth-field">
           <label for="login-username" class="auth-label">Username</label>
           <div class="auth-input-wrap">

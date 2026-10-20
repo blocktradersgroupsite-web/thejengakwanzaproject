@@ -894,22 +894,6 @@ const App = {
     State.removeFromCart(String(productId));
     this.renderCartUI();
   },
-  },
-
-  setCartItemQty(productId, val) {
-    const qty = parseFloat(val);
-    if (isNaN(qty) || qty <= 0) {
-      State.removeFromCart(productId);
-    } else {
-      State.updateCartQty(productId, qty);
-    }
-    this.renderCartUI();
-  },
-
-  removeCartItem(productId) {
-    State.removeFromCart(productId);
-    this.renderCartUI();
-  },
 
   clearCartConfirm() {
     if (State.cart.length > 0 && confirm('Are you sure you want to clear the cart?')) {
@@ -3540,13 +3524,6 @@ Corrugated Iron Sheets Gauge 28,Roofing,SHT-G28,012345678905,31000,38000,80,shee
         btn.disabled = false;
         btn.innerHTML = `🚀 Retry Import`;
       }
-    }
-  },
-      State.showToast('Product updated successfully', 'success');
-      document.getElementById('general-modal').classList.remove('active');
-      this.renderInventory(document.getElementById('content-area'));
-    } catch (err) {
-      State.showToast(err.message, 'error');
     }
   },
 
