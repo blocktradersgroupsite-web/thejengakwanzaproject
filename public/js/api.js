@@ -59,15 +59,38 @@ const API = {
     const cleanUser = (username || '').trim().toLowerCase();
     const cleanPass = (password || '').trim();
 
+    if (!cleanUser || !cleanPass) {
+      throw new Error('Please enter both username and password.');
+    }
+
     if (await this.checkFirebaseInit()) {
       try {
-        const res = await FirebaseAdapter.getWorkers();
-        let u = (res.workers || []).find(w => 
-          w.username && w.username.toLowerCase() === cleanUser && 
-          (w.pin_hash === cleanPass || w.password === cleanPass)
+        // 1. Check local cache first
+        let res = await FirebaseAdapter.getWorkers();
+        let workers = res.workers || [];
+        let u = workers.find(w => 
+          w.username && w.username.trim().toLowerCase() === cleanUser && 
+          (String(w.pin_hash || '').trim() === cleanPass || String(w.password || '').trim() === cleanPass)
         );
-        
-        // Initial Admin bootstrap for Firebase if user document not yet written
+
+        // 2. If not found in cache and network is online, fetch fresh users from Firebase cloud
+        if (!u && navigator.onLine) {
+          try {
+            const fresh = await FirebaseAdapter.rawFetch('users', 'GET', null, 3500);
+            if (fresh) {
+              FirebaseAdapter.setCache('users', fresh);
+              workers = Array.isArray(fresh) ? fresh : Object.keys(fresh).map(k => ({ id: k, ...fresh[k] }));
+              u = workers.find(w => 
+                w.username && w.username.trim().toLowerCase() === cleanUser && 
+                (String(w.pin_hash || '').trim() === cleanPass || String(w.password || '').trim() === cleanPass)
+              );
+            }
+          } catch (fetchErr) {
+            console.warn('Direct user cloud fetch note:', fetchErr.message);
+          }
+        }
+
+        // 3. Initial Admin bootstrap if user document not yet written
         if (!u && cleanUser === 'admin' && (cleanPass === 'admin123' || cleanPass === 'admin')) {
           u = {
             id: 'admin',
@@ -79,13 +102,14 @@ const API = {
           };
           FirebaseAdapter.addWorker(u).catch(() => {});
         }
+
         if (u) return { success: true, user: u };
       } catch (e) {
         console.warn('Firebase login attempt failed, falling back to local:', e);
       }
     }
 
-    return this.request('auth/login', {
+    return this.localFallback('auth/login', {
       method: 'POST',
       body: JSON.stringify({ username: cleanUser, password: cleanPass })
     });
@@ -444,16 +468,27 @@ const API = {
       const inputUser = (body.username || '').trim().toLowerCase();
       const inputPass = (body.password || body.pin || '').trim();
 
-      const u = workers.find(w => 
-        w.username && w.username.toLowerCase() === inputUser && 
-        (w.pin_hash === inputPass || w.password === inputPass)
+      // Check both local storage stores for maximum offline compatibility
+      let allWorkers = Array.isArray(workers) ? [...workers] : [];
+      try {
+        const raw = localStorage.getItem('jk_cache_users');
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          const list = Array.isArray(parsed) ? parsed : Object.values(parsed);
+          allWorkers = allWorkers.concat(list);
+        }
+      } catch (e) {}
+
+      const u = allWorkers.find(w => 
+        w && w.username && w.username.trim().toLowerCase() === inputUser && 
+        (String(w.pin_hash || '').trim() === inputPass || String(w.password || '').trim() === inputPass)
       );
       if (u) return { success: true, user: u };
 
       // Emergency fallback for default Admin on initial launch
       if (inputUser === 'admin' && (inputPass === 'admin123' || inputPass === 'admin')) {
         const defaultAdmin = {
-          id: 1,
+          id: 'admin',
           username: 'admin',
           full_name: 'System Administrator',
           role: 'Admin',

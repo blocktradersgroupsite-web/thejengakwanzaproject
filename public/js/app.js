@@ -87,6 +87,9 @@ const App = {
   // AUTHENTICATION & WORKER SESSIONS
   // -------------------------------------------------------------
   showAuthPage() {
+    document.documentElement.classList.remove('app-logged-in');
+    document.documentElement.classList.add('app-logged-out');
+
     const authPage = document.getElementById('auth-page');
     const appLayout = document.getElementById('app-layout');
     if (authPage) authPage.style.display = 'flex';
@@ -108,6 +111,9 @@ const App = {
   },
 
   hideAuthPage() {
+    document.documentElement.classList.remove('app-logged-out');
+    document.documentElement.classList.add('app-logged-in');
+
     const authPage = document.getElementById('auth-page');
     const appLayout = document.getElementById('app-layout');
     if (authPage) authPage.style.display = 'none';
@@ -127,8 +133,8 @@ const App = {
     const btn = document.getElementById('auth-submit-btn');
     const errAlert = document.getElementById('auth-error-alert');
 
-    const username = uInput.value.trim();
-    const password = pInput.value.trim();
+    const username = (uInput?.value || '').trim();
+    const password = (pInput?.value || '').trim();
 
     if (!username || !password) {
       if (errAlert) {
@@ -149,9 +155,15 @@ const App = {
       if (res && res.success && res.user) {
         State.setUser(res.user);
         this.hideAuthPage();
-        State.showToast(`Welcome back, ${res.user.full_name}!`, 'success');
-        await this.checkShiftStatus();
-        this.renderApp();
+        State.showToast(`Welcome back, ${res.user.full_name || res.user.username}!`, 'success');
+        
+        try {
+          await this.checkShiftStatus();
+          this.renderApp();
+        } catch (renderErr) {
+          console.warn('Post-login setup note:', renderErr);
+          this.navigate('dashboard');
+        }
       } else {
         throw new Error((res && res.message) || 'Invalid username or password. Please try again.');
       }

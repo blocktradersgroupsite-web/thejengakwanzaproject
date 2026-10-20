@@ -15,18 +15,24 @@
 </head>
 <body>
   <script>
-    // Instant Visual Gate: Prevents UI stacking/freezing and shows correct screen with 0ms delay
+    // Instant Visual Gate: Prevents UI stacking/freezing with 0ms delay
     (function() {
       try {
         var user = localStorage.getItem('jengakwanza_auth_user');
-        if (!user) {
-          document.write('<style>#auth-page{display:flex!important;}#app-layout{display:none!important;}</style>');
+        if (user) {
+          document.documentElement.classList.add('app-logged-in');
         } else {
-          document.write('<style>#auth-page{display:none!important;}#app-layout{display:flex!important;}</style>');
+          document.documentElement.classList.add('app-logged-out');
         }
       } catch(e) {}
     })();
   </script>
+  <style>
+    html.app-logged-out #auth-page { display: flex !important; }
+    html.app-logged-out #app-layout { display: none !important; }
+    html.app-logged-in #auth-page { display: none !important; }
+    html.app-logged-in #app-layout { display: flex !important; }
+  </style>
 
   <!-- Dedicated Full-Screen Authentication Page -->
   <div id="auth-page" class="auth-wrapper" style="display: none;">
