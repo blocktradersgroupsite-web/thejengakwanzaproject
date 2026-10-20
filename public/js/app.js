@@ -442,9 +442,9 @@ const App = {
         <div class="metrics-grid">
           <div class="metric-card">
             <div class="metric-data">
-              <h4>Available Capital (Liquid)</h4>
-              <div class="metric-value" style="color: var(--primary);">${State.formatMoney(d.capital_available)}</div>
-              <div class="metric-sub">Cash: ${State.formatMoney(d.cash_in_hand)} • Bank/Mobile: ${State.formatMoney((parseFloat(d.bank_balance) || 0) + (parseFloat(d.mobile_balance) || 0))}</div>
+              <h4>Total Business Capital</h4>
+              <div class="metric-value" style="color: var(--primary);">${State.formatMoney(d.total_capital || d.net_capital || ((parseFloat(d.stock_value) || 0) + (parseFloat(d.capital_available) || 0)))}</div>
+              <div class="metric-sub">Stock Value: ${State.formatMoney(d.stock_value || 0)} • Liquid: ${State.formatMoney(d.capital_available || 0)}</div>
             </div>
             <div class="metric-icon teal">
               <svg width="24" height="24" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
@@ -589,9 +589,14 @@ const App = {
                     <td><strong>${State.formatMoney(o.total)}</strong></td>
                     <td><span class="badge ${o.payment_status === 'PAID' ? 'badge-success' : 'badge-danger'}">${o.payment_status}</span></td>
                     <td>
-                      <button class="btn btn-sm btn-secondary" onclick="App.viewAndPrintOrder(${o.id}, '${o.order_type}')">
-                        Print
-                      </button>
+                      <div style="display: flex; gap: 4px;">
+                        <button class="btn btn-sm btn-secondary" onclick="App.viewAndPrintOrder(${o.id}, '${o.order_type}')">
+                          Print
+                        </button>
+                        <button class="btn btn-sm btn-danger" onclick="App.deleteOrderAction('${o.id}')">
+                          Delete
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 `).join('')}
@@ -1168,6 +1173,9 @@ const App = {
                           <button class="btn btn-sm btn-secondary" onclick="App.showDeliveryNoteModalFromInvoice(${inv.id})">
                             Delivery Note
                           </button>
+                          <button class="btn btn-sm btn-danger" onclick="App.deleteOrderAction('${inv.id}')">
+                            Delete
+                          </button>
                         </div>
                       </td>
                     </tr>
@@ -1234,6 +1242,9 @@ const App = {
                           </button>
                           <button class="btn btn-sm btn-primary" onclick="App.convertProformaAction(${p.id})">
                             Convert to Invoice
+                          </button>
+                          <button class="btn btn-sm btn-danger" onclick="App.deleteOrderAction('${p.id}')">
+                            Delete
                           </button>
                         </div>
                       </td>
@@ -1312,9 +1323,14 @@ const App = {
                       <td>${dn.transporter_name || 'Direct'} • ${dn.vehicle_number || 'N/A'}</td>
                       <td>${dn.dispatched_by_name || 'Staff'}</td>
                       <td>
-                        <button class="btn btn-sm btn-secondary" onclick="App.viewAndPrintDeliveryNote(${JSON.stringify(dn).replace(/"/g, '&quot;')})">
-                          Print Note
-                        </button>
+                        <div style="display: flex; gap: 6px;">
+                          <button class="btn btn-sm btn-secondary" onclick="App.viewAndPrintDeliveryNote(${JSON.stringify(dn).replace(/"/g, '&quot;')})">
+                            Print Note
+                          </button>
+                          <button class="btn btn-sm btn-danger" onclick="App.deleteDeliveryNoteAction('${dn.id}')">
+                            Delete
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   `).join('')}
@@ -1502,6 +1518,9 @@ const App = {
               </button>
               <button class="btn btn-sm btn-secondary" title="Edit Product" onclick="App.showEditProductModal('${p.id}')">
                 Edit
+              </button>
+              <button class="btn btn-sm btn-danger" title="Delete Product" onclick="App.deleteProductAction('${p.id}')">
+                Delete
               </button>
             </div>
           </td>
@@ -1789,6 +1808,9 @@ const App = {
                           <button class="btn btn-sm btn-secondary" onclick="App.showEditCustomerModal(${c.id})">
                             Edit
                           </button>
+                          <button class="btn btn-sm btn-danger" onclick="App.deleteCustomerAction('${c.id}')">
+                            Delete
+                          </button>
                         </div>
                       </td>
                     </tr>
@@ -1952,6 +1974,9 @@ const App = {
                               Receive Stock
                             </button>
                           ` : ''}
+                          <button class="btn btn-sm btn-danger" onclick="App.deletePurchaseOrderAction('${po.id}')">
+                            Delete
+                          </button>
                         </div>
                       </td>
                     </tr>
@@ -1998,7 +2023,10 @@ const App = {
                       <td>${s.email || '-'}</td>
                       <td>${s.address || '-'}</td>
                       <td>
-                        <button class="btn btn-sm btn-secondary" onclick="App.showEditSupplierModal(${s.id})">Edit</button>
+                        <div style="display: flex; gap: 6px;">
+                          <button class="btn btn-sm btn-secondary" onclick="App.showEditSupplierModal(${s.id})">Edit</button>
+                          <button class="btn btn-sm btn-danger" onclick="App.deleteSupplierAction('${s.id}')">Delete</button>
+                        </div>
                       </td>
                     </tr>
                   `).join('')}
@@ -2240,15 +2268,15 @@ const App = {
       const ledger = res.ledger || [];
 
       container.innerHTML = `
-        <div class="card" style="background: linear-gradient(135deg, #0f172a, #1e293b); color: #ffffff;">
+        <div class="card" style="background: linear-gradient(135deg, #0f172a, #1e293b); color: #ffffff; border-left: 5px solid var(--primary);">
           <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 16px;">
             <div>
-              <div style="font-size: 13px; text-transform: uppercase; color: #94a3b8; letter-spacing: 1px;">TOTAL ESTIMATED NET BUSINESS CAPITAL</div>
-              <div style="font-size: 32px; font-weight: 900; color: #38bdf8; margin: 4px 0;">
+              <div style="font-size: 13px; text-transform: uppercase; color: #94a3b8; letter-spacing: 1px;">TOTAL BUSINESS CAPITAL (STOCK + LIQUID + INVESTMENTS)</div>
+              <div style="font-size: 34px; font-weight: 900; color: #38bdf8; margin: 4px 0;">
                 ${State.formatMoney(cap.total_estimated_net_capital)}
               </div>
-              <div style="font-size: 12px; color: #cbd5e1;">
-                Liquid Capital (${State.formatMoney(cap.total_liquid)}) + Physical Inventory (${State.formatMoney(cap.stock_cost_valuation)}) + Debtors (${State.formatMoney(cap.debtors_total)})
+              <div style="font-size: 13px; color: #cbd5e1;">
+                Available Stock at Cost: <strong>${State.formatMoney(cap.stock_cost_valuation)}</strong> | Liquid Cash/Bank: <strong>${State.formatMoney(cap.total_liquid)}</strong> | Debtors: <strong>${State.formatMoney(cap.debtors_total)}</strong>
               </div>
             </div>
             <div style="display: flex; gap: 10px;">
@@ -2262,15 +2290,27 @@ const App = {
           </div>
         </div>
 
-        <!-- Liquid Capital Breakdown Cards -->
+        <!-- Capital Breakdown Cards: Stock Value + Cash + Bank + Float -->
         <div class="metrics-grid">
+          <div class="metric-card" style="border-top: 4px solid var(--primary);">
+            <div class="metric-data">
+              <h4>Money Invested in Available Stock</h4>
+              <div class="metric-value" style="color: var(--primary);">${State.formatMoney(cap.stock_cost_valuation)}</div>
+              <div class="metric-sub">${cap.total_units_in_stock || 0} units in inventory (Valuation at Cost)</div>
+              <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">Expected Retail Revenue: ${State.formatMoney(cap.stock_retail_valuation)}</div>
+            </div>
+            <div class="metric-icon teal">
+              <svg width="24" height="24" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"></path></svg>
+            </div>
+          </div>
+
           <div class="metric-card">
             <div class="metric-data">
               <h4>Cash in Register / Drawer</h4>
-              <div class="metric-value" style="color: var(--primary);">${State.formatMoney(cap.cash)}</div>
-              <div class="metric-sub">Physical cash available for daily trade</div>
+              <div class="metric-value" style="color: var(--success);">${State.formatMoney(cap.cash)}</div>
+              <div class="metric-sub">Physical cash available in Arusha shop</div>
             </div>
-            <div class="metric-icon teal">
+            <div class="metric-icon green">
               <svg width="24" height="24" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 9V7a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2m2 4h10a2 2 0 002-2v-6a2 2 0 00-2-2H9a2 2 0 00-2 2v6a2 2 0 002 2zm7-5a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>
             </div>
           </div>
@@ -2294,6 +2334,28 @@ const App = {
             </div>
             <div class="metric-icon amber">
               <svg width="24" height="24" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 18h.01M8 21h8a2 2 0 002-2V5a2 2 0 00-2-2H8a2 2 0 00-2 2v14a2 2 0 002 2z"></path></svg>
+            </div>
+          </div>
+
+          <div class="metric-card">
+            <div class="metric-data">
+              <h4>Total Invested Owner Capital</h4>
+              <div class="metric-value" style="color: #6366f1;">${State.formatMoney(cap.total_injected_capital)}</div>
+              <div class="metric-sub">Net after drawings: ${State.formatMoney(cap.net_injected_capital)}</div>
+            </div>
+            <div class="metric-icon purple">
+              <svg width="24" height="24" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+            </div>
+          </div>
+
+          <div class="metric-card">
+            <div class="metric-data">
+              <h4>Customer Credit / Debtors</h4>
+              <div class="metric-value" style="color: #ec4899;">${State.formatMoney(cap.debtors_total)}</div>
+              <div class="metric-sub">Uncollected customer credit</div>
+            </div>
+            <div class="metric-icon red">
+              <svg width="24" height="24" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
             </div>
           </div>
         </div>
@@ -2320,6 +2382,7 @@ const App = {
                     <th>Amount</th>
                     <th>Description</th>
                     <th>Recorded By</th>
+                    <th>Actions</th>
                   </tr>
                 </thead>
                 <tbody>
@@ -2337,6 +2400,9 @@ const App = {
                       </td>
                       <td>${l.description}</td>
                       <td>${l.user_name || 'Admin'}</td>
+                      <td>
+                        <button class="btn btn-sm btn-danger" onclick="App.deleteCapitalEntryAction('${l.id}')">Delete</button>
+                      </td>
                     </tr>
                   `).join('')}
                 </tbody>
@@ -2538,9 +2604,16 @@ const App = {
                     </td>
                     <td>${State.formatDate(w.created_at)}</td>
                     <td>
-                      <button class="btn btn-sm btn-secondary" onclick="App.showEditWorkerModal(${w.id})">
-                        Edit / Reset PIN
-                      </button>
+                      <div style="display: flex; gap: 6px;">
+                        <button class="btn btn-sm btn-secondary" onclick="App.showEditWorkerModal('${w.id}')">
+                          Edit
+                        </button>
+                        ${w.username !== 'admin' && String(w.id) !== String(State.currentUser?.id) ? `
+                          <button class="btn btn-sm btn-danger" onclick="App.deleteWorkerAction('${w.id}')">
+                            Delete
+                          </button>
+                        ` : ''}
+                      </div>
                     </td>
                   </tr>
                 `).join('')}
@@ -2631,13 +2704,13 @@ const App = {
 
   async showEditWorkerModal(workerId) {
     const res = await API.getWorkers();
-    const w = (res.workers || []).find(x => x.id === workerId);
+    const w = (res.workers || []).find(x => String(x.id) === String(workerId));
     if (!w) return;
 
     const modal = document.getElementById('general-modal');
     document.getElementById('general-modal-title').textContent = `Edit Worker: ${w.full_name}`;
     document.getElementById('general-modal-body').innerHTML = `
-      <form id="edit-worker-form" onsubmit="App.submitEditWorker(event, ${w.id})">
+      <form id="edit-worker-form" onsubmit="App.submitEditWorker(event, '${w.id}')">
         <div class="form-group">
           <label class="form-label">Full Name</label>
           <input type="text" id="ew-name" class="form-input" value="${w.full_name}" required>
@@ -3231,7 +3304,10 @@ const App = {
           </div>
         </div>
 
-        <button type="submit" class="btn btn-primary" style="width: 100%;">Save Product Changes</button>
+        <div style="display: flex; gap: 10px; margin-top: 14px;">
+          <button type="submit" class="btn btn-primary" style="flex: 2;">Save Product Changes</button>
+          <button type="button" class="btn btn-danger" style="flex: 1;" onclick="document.getElementById('general-modal').classList.remove('active'); App.deleteProductAction('${p.id}');">Delete Product</button>
+        </div>
       </form>
     `;
     modal.classList.add('active');
@@ -3979,6 +4055,127 @@ Corrugated Iron Sheets Gauge 28,Roofing,SHT-G28,012345678905,31000,38000,80,shee
       }
     } catch (err) {
       State.showToast(err.message, 'error');
+    }
+  },
+
+  // -------------------------------------------------------------
+  // UNIVERSAL DELETE ACTIONS
+  // -------------------------------------------------------------
+  async deleteProductAction(id) {
+    if (!confirm('Are you sure you want to permanently delete this product? This action cannot be undone.')) return;
+    try {
+      const res = await API.deleteProduct(id);
+      if (res && res.success) {
+        State.showToast('Product deleted successfully', 'success');
+        if (State.currentView === 'inventory') {
+          this.renderInventory(document.getElementById('content-area'));
+        } else if (State.currentView === 'pos') {
+          this.renderPOS(document.getElementById('content-area'));
+        } else {
+          this.navigate(State.currentView);
+        }
+      }
+    } catch (err) {
+      State.showToast(err.message || 'Failed to delete product', 'error');
+    }
+  },
+
+  async deleteCustomerAction(id) {
+    if (!confirm('Are you sure you want to delete this customer record?')) return;
+    try {
+      const res = await API.deleteCustomer(id);
+      if (res && res.success) {
+        State.showToast('Customer deleted successfully', 'success');
+        this.renderDebtors(document.getElementById('content-area'));
+      }
+    } catch (err) {
+      State.showToast(err.message || 'Failed to delete customer', 'error');
+    }
+  },
+
+  async deleteSupplierAction(id) {
+    if (!confirm('Are you sure you want to delete this supplier?')) return;
+    try {
+      const res = await API.deleteSupplier(id);
+      if (res && res.success) {
+        State.showToast('Supplier deleted successfully', 'success');
+        this.renderSuppliers(document.getElementById('content-area'));
+      }
+    } catch (err) {
+      State.showToast(err.message || 'Failed to delete supplier', 'error');
+    }
+  },
+
+  async deleteOrderAction(id) {
+    if (!confirm('Are you sure you want to permanently delete this order / invoice record?')) return;
+    try {
+      const res = await API.deleteOrder(id);
+      if (res && res.success) {
+        State.showToast('Order / invoice deleted successfully', 'success');
+        if (State.currentView === 'dashboard') {
+          this.renderDashboard(document.getElementById('content-area'));
+        } else if (State.currentView === 'invoices') {
+          this.renderInvoices(document.getElementById('content-area'));
+        } else if (State.currentView === 'proforma') {
+          this.renderProforma(document.getElementById('content-area'));
+        } else {
+          this.navigate(State.currentView);
+        }
+      }
+    } catch (err) {
+      State.showToast(err.message || 'Failed to delete order', 'error');
+    }
+  },
+
+  async deleteDeliveryNoteAction(id) {
+    if (!confirm('Are you sure you want to delete this delivery note?')) return;
+    try {
+      const res = await API.deleteDeliveryNote(id);
+      if (res && res.success) {
+        State.showToast('Delivery note deleted successfully', 'success');
+        this.renderDeliveryNotes(document.getElementById('content-area'));
+      }
+    } catch (err) {
+      State.showToast(err.message || 'Failed to delete delivery note', 'error');
+    }
+  },
+
+  async deletePurchaseOrderAction(id) {
+    if (!confirm('Are you sure you want to delete this purchase order?')) return;
+    try {
+      const res = await API.deletePurchaseOrder(id);
+      if (res && res.success) {
+        State.showToast('Purchase order deleted successfully', 'success');
+        this.renderSuppliers(document.getElementById('content-area'));
+      }
+    } catch (err) {
+      State.showToast(err.message || 'Failed to delete purchase order', 'error');
+    }
+  },
+
+  async deleteWorkerAction(id) {
+    if (!confirm('Are you sure you want to delete this staff account? They will no longer be able to log in.')) return;
+    try {
+      const res = await API.deleteWorker(id);
+      if (res && res.success) {
+        State.showToast('Staff account deleted successfully', 'success');
+        this.renderWorkers(document.getElementById('content-area'));
+      }
+    } catch (err) {
+      State.showToast(err.message || 'Failed to delete worker', 'error');
+    }
+  },
+
+  async deleteCapitalEntryAction(id) {
+    if (!confirm('Are you sure you want to delete this capital adjustment entry?')) return;
+    try {
+      const res = await API.deleteCapitalAdjustment(id);
+      if (res && res.success) {
+        State.showToast('Capital transaction deleted successfully', 'success');
+        this.renderCapital(document.getElementById('content-area'));
+      }
+    } catch (err) {
+      State.showToast(err.message || 'Failed to delete capital entry', 'error');
     }
   }
 };

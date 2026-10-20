@@ -329,6 +329,14 @@ const FirebaseAdapter = {
     return { success: true };
   },
 
+  async deleteWorker(id) {
+    const current = this.getCache('users') || {};
+    delete current[id];
+    this.setCache('users', current);
+    await this.rtdb(`users/${id}`, 'DELETE');
+    return { success: true };
+  },
+
   // -------------------------------------------------------------
   // 3. SHIFTS
   // -------------------------------------------------------------
@@ -674,6 +682,14 @@ const FirebaseAdapter = {
     return { success: true };
   },
 
+  async deleteCustomer(id) {
+    const current = this.getCache('customers') || {};
+    delete current[id];
+    this.setCache('customers', current);
+    await this.rtdb(`customers/${id}`, 'DELETE');
+    return { success: true };
+  },
+
   async getDebtors() {
     const res = await this.getCustomers();
     const debtors = (res.customers || []).filter(c => parseFloat(c.current_credit || 0) > 0);
@@ -866,6 +882,14 @@ const FirebaseAdapter = {
     return res;
   },
 
+  async deleteOrder(id) {
+    const current = this.getCache('orders') || {};
+    delete current[id];
+    this.setCache('orders', current);
+    await this.rtdb(`orders/${id}`, 'DELETE');
+    return { success: true };
+  },
+
   // -------------------------------------------------------------
   // 7. DELIVERY NOTES
   // -------------------------------------------------------------
@@ -891,6 +915,14 @@ const FirebaseAdapter = {
 
     await this.rtdb(`delivery_notes/${id}`, 'PUT', dn);
     return { success: true, delivery_number: dnNumber, delivery_note: dn };
+  },
+
+  async deleteDeliveryNote(id) {
+    const current = this.getCache('delivery_notes') || {};
+    delete current[id];
+    this.setCache('delivery_notes', current);
+    await this.rtdb(`delivery_notes/${id}`, 'DELETE');
+    return { success: true };
   },
 
   // -------------------------------------------------------------
@@ -964,6 +996,14 @@ const FirebaseAdapter = {
     return { success: true, id };
   },
 
+  async deleteSupplier(id) {
+    const current = this.getCache('suppliers') || {};
+    delete current[id];
+    this.setCache('suppliers', current);
+    await this.rtdb(`suppliers/${id}`, 'DELETE');
+    return { success: true };
+  },
+
   async getPurchaseOrders() {
     const cached = this.getCache('purchase_orders') || {};
     let pos = Object.keys(cached).map(k => ({ id: k, ...cached[k] }));
@@ -1016,6 +1056,14 @@ const FirebaseAdapter = {
     return { success: true };
   },
 
+  async deletePurchaseOrder(id) {
+    const current = this.getCache('purchase_orders') || {};
+    delete current[id];
+    this.setCache('purchase_orders', current);
+    await this.rtdb(`purchase_orders/${id}`, 'DELETE');
+    return { success: true };
+  },
+
   // -------------------------------------------------------------
   // 10. CAPITAL & FINANCIAL METRICS (INSTANT ZERO-LATENCY ENGINE)
   // -------------------------------------------------------------
@@ -1025,39 +1073,73 @@ const FirebaseAdapter = {
     const products = Object.values(prodsObj);
     const custsObj = this.getCache('customers') || {};
     const customers = Object.values(custsObj);
+    const ledgerObj = this.getCache('capital_ledger') || {};
+    const ledger = Object.values(ledgerObj);
 
+    // 1. Available Stock Valuation at Cost (Total money invested in available goods)
     let stock_cost_val = 0;
     let stock_retail_val = 0;
+    let total_stock_items = 0;
     products.forEach(p => {
       const q = parseFloat(p.stock_quantity || 0);
-      stock_cost_val += q * parseFloat(p.cost_price || 0);
-      stock_retail_val += q * parseFloat(p.selling_price || 0);
+      const cost = parseFloat(p.cost_price || 0);
+      const retail = parseFloat(p.selling_price || 0);
+      if (q > 0) {
+        stock_cost_val += q * cost;
+        stock_retail_val += q * retail;
+        total_stock_items += q;
+      }
     });
 
+    // 2. Total Injected / Invested Capital recorded in ledger
+    let total_injected = 0;
+    let total_drawn = 0;
+    ledger.forEach(l => {
+      const amt = parseFloat(l.amount || 0);
+      if (l.entry_type === 'CAPITAL_INJECTION' || l.type === 'INJECTION') {
+        total_injected += amt;
+      } else if (l.entry_type === 'OWNER_DRAWING' || l.type === 'DRAWING') {
+        total_drawn += amt;
+      }
+    });
+
+    // 3. Debtors (Accounts Receivable)
     let debtors_total = 0;
     customers.forEach(c => {
       debtors_total += parseFloat(c.current_credit || 0);
     });
 
+    // 4. Liquid funds
     const cash = parseFloat(settings.cash_balance || 0);
     const bank = parseFloat(settings.bank_balance || 0);
     const mobile = parseFloat(settings.mobile_money_balance || 0);
     const total_liquid = cash + bank + mobile;
+
+    // 5. Total Net Working Capital: Stock Investment + Liquid Cash/Bank + Debtors
     const net_capital = total_liquid + stock_cost_val + debtors_total;
 
     return {
       success: true,
       capital: {
         cash_balance: cash,
+        cash: cash,
         bank_balance: bank,
+        bank: bank,
         mobile_money_balance: mobile,
+        mobile_money: mobile,
         total_liquid,
         stock_cost_valuation: stock_cost_val,
+        stock_valuation: stock_cost_val,
         stock_retail_valuation: stock_retail_val,
+        total_stock_items,
         total_debtors: debtors_total,
-        total_creditors: 0.0,
+        debtors_total,
+        total_injected,
+        total_drawn,
+        total_estimated_net_capital: net_capital,
         net_capital
-      }
+      },
+      ledger: ledger.sort((a, b) => new Date(b.created_at || b.entry_date || 0) - new Date(a.created_at || a.entry_date || 0))
     };
   },
 
@@ -1071,9 +1153,9 @@ const FirebaseAdapter = {
     };
 
     const settings = this.getCache('settings') || {};
-    if (data.type === 'INJECTION') {
+    if (data.entry_type === 'CAPITAL_INJECTION' || data.type === 'INJECTION') {
       settings.cash_balance = (parseFloat(settings.cash_balance) || 0) + entry.amount;
-    } else if (data.type === 'DRAWING') {
+    } else if (data.entry_type === 'OWNER_DRAWING' || data.type === 'DRAWING') {
       settings.cash_balance = Math.max(0, (parseFloat(settings.cash_balance) || 0) - entry.amount);
     }
     this.setCache('settings', settings);
@@ -1085,6 +1167,26 @@ const FirebaseAdapter = {
     await this.rtdb(`capital_ledger/${id}`, 'PUT', entry);
     await this.rtdb('settings', 'PATCH', { cash_balance: settings.cash_balance });
     return { success: true, id };
+  },
+
+  async deleteCapitalAdjustment(id) {
+    const ledgers = this.getCache('capital_ledger') || {};
+    const entry = ledgers[id];
+    if (entry) {
+      const settings = this.getCache('settings') || {};
+      const amt = parseFloat(entry.amount || 0);
+      if (entry.entry_type === 'CAPITAL_INJECTION' || entry.type === 'INJECTION') {
+        settings.cash_balance = Math.max(0, (parseFloat(settings.cash_balance) || 0) - amt);
+      } else if (entry.entry_type === 'OWNER_DRAWING' || entry.type === 'DRAWING') {
+        settings.cash_balance = (parseFloat(settings.cash_balance) || 0) + amt;
+      }
+      delete ledgers[id];
+      this.setCache('settings', settings);
+      this.setCache('capital_ledger', ledgers);
+      await this.rtdb(`capital_ledger/${id}`, 'DELETE');
+      await this.rtdb('settings', 'PATCH', { cash_balance: settings.cash_balance });
+    }
+    return { success: true };
   },
 
   // -------------------------------------------------------------
@@ -1116,9 +1218,13 @@ const FirebaseAdapter = {
     const mobile = parseFloat(cap.mobile_money_balance || 0);
     const debtors = parseFloat(cap.total_debtors || 0);
     const stockVal = parseFloat(cap.stock_cost_valuation || 0);
+    const totalWorkingCap = (cap.net_capital !== undefined) ? cap.net_capital : (cash + bank + mobile + stockVal + debtors);
 
     const reportData = {
+      total_capital: totalWorkingCap,
+      net_capital: totalWorkingCap,
       capital_available: cash + bank + mobile,
+      stock_value: stockVal,
       cash_in_hand: cash,
       bank_balance: bank,
       mobile_balance: mobile,
@@ -1127,7 +1233,6 @@ const FirebaseAdapter = {
       today_expenses: todayExpTotal,
       net_today: todaySales - todayExpTotal,
       debtors_total: debtors,
-      stock_value: stockVal,
       low_stock_count: lowStock,
       active_workers_count: 0
     };

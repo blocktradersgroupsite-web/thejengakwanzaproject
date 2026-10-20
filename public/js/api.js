@@ -151,6 +151,11 @@ const API = {
     });
   },
 
+  async deleteWorker(id) {
+    if (await this.checkFirebaseInit()) return FirebaseAdapter.deleteWorker(id);
+    return this.request(`workers/${id}`, { method: 'DELETE' });
+  },
+
   // Shifts
   async getShifts(date) {
     if (await this.checkFirebaseInit()) return FirebaseAdapter.getShifts(date);
@@ -244,6 +249,11 @@ const API = {
     });
   },
 
+  async deleteCustomer(id) {
+    if (await this.checkFirebaseInit()) return FirebaseAdapter.deleteCustomer(id);
+    return this.request(`customers/${id}`, { method: 'DELETE' });
+  },
+
   async getDebtors() {
     if (await this.checkFirebaseInit()) return FirebaseAdapter.getDebtors();
     return this.request('debtors');
@@ -271,6 +281,11 @@ const API = {
     });
   },
 
+  async deleteSupplier(id) {
+    if (await this.checkFirebaseInit()) return FirebaseAdapter.deleteSupplier(id);
+    return this.request(`suppliers/${id}`, { method: 'DELETE' });
+  },
+
   async getPurchaseOrders() {
     if (await this.checkFirebaseInit()) return FirebaseAdapter.getPurchaseOrders();
     return this.request('purchase-orders');
@@ -290,6 +305,11 @@ const API = {
       method: 'POST',
       body: JSON.stringify({ user_id: userId })
     });
+  },
+
+  async deletePurchaseOrder(id) {
+    if (await this.checkFirebaseInit()) return FirebaseAdapter.deletePurchaseOrder(id);
+    return this.request(`purchase-orders/${id}`, { method: 'DELETE' });
   },
 
   // Orders
@@ -312,6 +332,11 @@ const API = {
     });
   },
 
+  async deleteOrder(id) {
+    if (await this.checkFirebaseInit()) return FirebaseAdapter.deleteOrder(id);
+    return this.request(`orders/${id}`, { method: 'DELETE' });
+  },
+
   async convertProforma(id, targetType, userId) {
     if (await this.checkFirebaseInit()) return FirebaseAdapter.convertProforma(id, targetType, userId);
     return this.request(`proforma/${id}/convert`, {
@@ -332,6 +357,11 @@ const API = {
       method: 'POST',
       body: JSON.stringify(dnData)
     });
+  },
+
+  async deleteDeliveryNote(id) {
+    if (await this.checkFirebaseInit()) return FirebaseAdapter.deleteDeliveryNote(id);
+    return this.request(`delivery-notes/${id}`, { method: 'DELETE' });
   },
 
   // Expenses
@@ -366,6 +396,11 @@ const API = {
       method: 'POST',
       body: JSON.stringify(data)
     });
+  },
+
+  async deleteCapitalAdjustment(id) {
+    if (await this.checkFirebaseInit()) return FirebaseAdapter.deleteCapitalAdjustment(id);
+    return this.request(`capital/adjust/${id}`, { method: 'DELETE' });
   },
 
   // Reports
