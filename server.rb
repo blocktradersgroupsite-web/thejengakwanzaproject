@@ -65,6 +65,11 @@ def init_database
     puts "=> Initialized default Admin profile: Username 'admin' | Password 'admin123'"
   end
 
+  begin
+    db.execute("ALTER TABLE products ADD COLUMN image_url TEXT")
+  rescue => _e
+  end
+
   db.close
 end
 
@@ -526,6 +531,7 @@ class ApiServlet < WEBrick::HTTPServlet::AbstractServlet
       stock_quantity = (data['stock_quantity'] || 0.0).to_f
       min_alert_quantity = (data['min_alert_quantity'] || 5.0).to_f
       description = (data['description'] || '').strip
+      image_url = data['image_url'] || ''
       user_id = data['user_id']
 
       if name.empty?
@@ -540,9 +546,9 @@ class ApiServlet < WEBrick::HTTPServlet::AbstractServlet
 
       db.transaction do
         db.execute(
-          "INSERT INTO products (sku, barcode, name, category, unit, cost_price, selling_price, stock_quantity, min_alert_quantity, description) " \
-          "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-          [sku, barcode, name, category, unit, cost_price, selling_price, stock_quantity, min_alert_quantity, description]
+          "INSERT INTO products (sku, barcode, name, category, unit, cost_price, selling_price, stock_quantity, min_alert_quantity, description, image_url) " \
+          "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+          [sku, barcode, name, category, unit, cost_price, selling_price, stock_quantity, min_alert_quantity, description, image_url]
         )
         product_id = db.last_insert_row_id
 
@@ -557,6 +563,40 @@ class ApiServlet < WEBrick::HTTPServlet::AbstractServlet
 
         send_json(res, 201, { success: true, id: product_id, sku: sku, message: 'Product created successfully' })
       end
+
+    when 'products/bulk'
+      products_list = data['products'] || data || []
+      imported_count = 0
+      db.transaction do
+        products_list.each do |p|
+          name = (p['name'] || '').strip
+          next if name.empty?
+          sku = (p['sku'] || "JKP-#{rand(10000..99999)}").strip
+          barcode = (p['barcode'] || '').strip
+          category = (p['category'] || 'General').strip
+          unit = (p['unit'] || 'pcs').strip
+          cost_price = (p['cost_price'] || 0.0).to_f
+          selling_price = (p['selling_price'] || 0.0).to_f
+          stock_quantity = (p['stock_quantity'] || 0.0).to_f
+          min_alert = (p['min_alert_quantity'] || 5.0).to_f
+          image_url = p['image_url'] || ''
+
+          db.execute(
+            "INSERT INTO products (sku, barcode, name, category, unit, cost_price, selling_price, stock_quantity, min_alert_quantity, image_url) " \
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            [sku, barcode, name, category, unit, cost_price, selling_price, stock_quantity, min_alert, image_url]
+          )
+          pid = db.last_insert_row_id
+          if stock_quantity > 0
+            db.execute(
+              "INSERT INTO stock_movements (product_id, movement_type, quantity, balance_after, unit_cost, notes) VALUES (?, 'INITIAL_STOCK', ?, ?, ?, 'Bulk stock import')",
+              [pid, stock_quantity, stock_quantity, cost_price]
+            )
+          end
+          imported_count += 1
+        end
+      end
+      send_json(res, 201, { success: true, count: imported_count })
 
     when 'stock/adjust'
       product_id = data['product_id']
@@ -1107,9 +1147,9 @@ class ApiServlet < WEBrick::HTTPServlet::AbstractServlet
       prod_id = $1.to_i
       db.execute(
         "UPDATE products SET sku = ?, barcode = ?, name = ?, category = ?, unit = ?, " \
-        "cost_price = ?, selling_price = ?, min_alert_quantity = ?, description = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
+        "cost_price = ?, selling_price = ?, min_alert_quantity = ?, description = ?, image_url = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?",
         [data['sku'], data['barcode'], data['name'], data['category'], data['unit'],
-         (data['cost_price'] || 0.0).to_f, (data['selling_price'] || 0.0).to_f, (data['min_alert_quantity'] || 5.0).to_f, data['description'], prod_id]
+         (data['cost_price'] || 0.0).to_f, (data['selling_price'] || 0.0).to_f, (data['min_alert_quantity'] || 5.0).to_f, data['description'], data['image_url'], prod_id]
       )
       send_json(res, 200, { success: true, message: 'Product updated successfully' })
 

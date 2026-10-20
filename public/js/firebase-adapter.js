@@ -183,6 +183,55 @@ const FirebaseAdapter = {
     return { success: true, id, sku: prod.sku };
   },
 
+  async bulkAddProducts(productsList) {
+    if (!productsList || productsList.length === 0) return { success: true, count: 0 };
+    const patchObj = {};
+    const movementPatch = {};
+    const nowTs = Date.now();
+    const nowIso = new Date().toISOString();
+
+    productsList.forEach((data, idx) => {
+      const id = (nowTs + idx).toString();
+      const sku = data.sku || `JKP-${Math.floor(10000 + Math.random() * 90000)}`;
+      const prod = {
+        id,
+        name: data.name || 'Unnamed Product',
+        category: data.category || 'General',
+        sku,
+        barcode: data.barcode || '',
+        unit: data.unit || 'pcs',
+        cost_price: parseFloat(data.cost_price || 0),
+        selling_price: parseFloat(data.selling_price || 0),
+        stock_quantity: parseFloat(data.stock_quantity || 0),
+        min_alert_quantity: parseFloat(data.min_alert_quantity || 5),
+        image_url: data.image_url || '',
+        description: data.description || '',
+        created_at: nowIso
+      };
+      patchObj[id] = prod;
+
+      if (prod.stock_quantity > 0) {
+        const mId = (nowTs + idx + 500000).toString();
+        movementPatch[mId] = {
+          product_id: id,
+          product_name: prod.name,
+          movement_type: 'INITIAL_STOCK',
+          quantity: prod.stock_quantity,
+          balance_after: prod.stock_quantity,
+          unit_cost: prod.cost_price,
+          notes: 'Bulk stock import from file',
+          created_at: nowIso
+        };
+      }
+    });
+
+    await this.rtdb('products', 'PATCH', patchObj);
+    if (Object.keys(movementPatch).length > 0) {
+      await this.rtdb('stock_movements', 'PATCH', movementPatch);
+    }
+    return { success: true, count: productsList.length };
+  },
+
   async updateProduct(id, data) {
     await this.rtdb(`products/${id}`, 'PATCH', {
       ...data,

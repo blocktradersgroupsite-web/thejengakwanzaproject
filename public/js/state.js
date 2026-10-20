@@ -37,7 +37,7 @@ const State = {
 
   // Cart operations for POS
   addToCart(product, qty = 1) {
-    const existing = this.cart.find(item => item.product_id === product.id);
+    const existing = this.cart.find(item => String(item.product_id) === String(product.id));
     if (existing) {
       existing.quantity += qty;
       existing.total_price = existing.quantity * existing.unit_price;
@@ -45,6 +45,7 @@ const State = {
       this.cart.push({
         product_id: product.id,
         product_name: product.name,
+        image_url: product.image_url || '',
         unit: product.unit || 'pcs',
         cost_price: parseFloat(product.cost_price || 0),
         unit_price: parseFloat(product.selling_price || 0),
@@ -55,7 +56,7 @@ const State = {
   },
 
   updateCartQty(productId, qty) {
-    const item = this.cart.find(i => i.product_id === productId);
+    const item = this.cart.find(i => String(i.product_id) === String(productId));
     if (item) {
       item.quantity = Math.max(0.1, parseFloat(qty));
       item.total_price = item.quantity * item.unit_price;
@@ -63,7 +64,7 @@ const State = {
   },
 
   removeFromCart(productId) {
-    this.cart = this.cart.filter(i => i.product_id !== productId);
+    this.cart = this.cart.filter(i => String(i.product_id) !== String(productId));
   },
 
   clearCart() {

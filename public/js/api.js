@@ -164,6 +164,14 @@ const API = {
     });
   },
 
+  async bulkAddProducts(productsList) {
+    if (await this.checkFirebaseInit()) return FirebaseAdapter.bulkAddProducts(productsList);
+    for (const p of productsList) {
+      await this.addProduct(p);
+    }
+    return { success: true, count: productsList.length };
+  },
+
   async updateProduct(id, productData) {
     if (await this.checkFirebaseInit()) return FirebaseAdapter.updateProduct(id, productData);
     return this.request(`products/${id}`, {

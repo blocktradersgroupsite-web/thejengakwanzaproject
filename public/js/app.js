@@ -584,7 +584,8 @@ const App = {
             <select id="pos-category-filter" class="form-select" style="max-width: 170px;" onchange="App.filterPOSProducts()">
               <option value="">All Categories</option>
             </select>
-            <button class="btn btn-secondary" onclick="App.showNewProductModal()">+ Add Product</button>
+            <button class="btn btn-primary" onclick="App.showNewProductModal()">+ Add Product</button>
+            <button class="btn btn-secondary" onclick="App.showStockImportModal()" title="Import stock from CSV / Excel file">📁 Import File</button>
           </div>
           <div id="pos-products-list" class="pos-product-grid">
             <div style="grid-column: 1/-1; text-align: center; padding: 40px;">Loading inventory products...</div>
@@ -674,7 +675,9 @@ const App = {
     if (!container) return;
 
     const filtered = this.productsCache.filter(p => {
-      const matchesQ = p.name.toLowerCase().includes(query) || (p.sku && p.sku.toLowerCase().includes(query)) || (p.barcode && p.barcode.toLowerCase().includes(query));
+      const matchesQ = (p.name || '').toLowerCase().includes(query) || 
+                       (p.sku && p.sku.toLowerCase().includes(query)) || 
+                       (p.barcode && p.barcode.toLowerCase().includes(query));
       const matchesC = !category || p.category === category;
       return matchesQ && matchesC;
     });
@@ -683,8 +686,11 @@ const App = {
       container.innerHTML = `
         <div class="empty-state" style="grid-column: 1/-1;">
           <h3>No products found</h3>
-          <p>Add products to your inventory to start selling at the POS terminal.</p>
-          <button class="btn btn-primary" onclick="App.showNewProductModal()">+ Add New Product</button>
+          <p>Add products to your inventory or import from a file to start selling.</p>
+          <div style="display: flex; gap: 10px; justify-content: center; margin-top: 10px;">
+            <button class="btn btn-primary" onclick="App.showNewProductModal()">+ Add New Product</button>
+            <button class="btn btn-secondary" onclick="App.showStockImportModal()">📁 Import Stock from File</button>
+          </div>
         </div>
       `;
       return;
@@ -692,26 +698,43 @@ const App = {
 
     container.innerHTML = filtered.map(p => {
       const isLow = p.stock_quantity <= p.min_alert_quantity;
+      const isOut = p.stock_quantity <= 0;
+      const hasImage = Boolean(p.image_url);
       return `
-        <div class="pos-product-card" onclick="App.addProductToPOSCart(${p.id})">
+        <div class="pos-product-card" onclick="App.addProductToPOSCart('${p.id}')">
+          <div class="pos-product-thumb-wrap">
+            ${hasImage 
+              ? `<img src="${p.image_url}" alt="${this.escape(p.name)}" class="pos-product-img" onerror="this.onerror=null; this.parentElement.innerHTML='<div class=\\'pos-product-no-img\\'>📦</div>';">` 
+              : `<div class="pos-product-no-img">📦</div>`
+            }
+          </div>
           <div>
-            <div class="pos-product-name">${p.name}</div>
-            <div class="pos-product-sku">${p.sku || ''} • ${p.category || 'General'}</div>
+            <div class="pos-product-name" title="${this.escape(p.name)}">${this.escape(p.name)}</div>
+            <div class="pos-product-sku">${this.escape(p.sku || '')} • ${this.escape(p.category || 'General')}</div>
           </div>
           <div class="pos-product-meta">
             <div class="pos-product-price">${State.formatMoney(p.selling_price)}</div>
-            <div class="pos-product-stock ${isLow ? 'low' : ''}">${p.stock_quantity} ${p.unit || 'pcs'}</div>
+            <div class="pos-product-stock ${isOut ? 'out' : (isLow ? 'low' : '')}">
+              ${p.stock_quantity} ${this.escape(p.unit || 'pcs')}
+            </div>
           </div>
+          <button type="button" class="btn btn-sm btn-primary pos-add-cart-btn" onclick="event.stopPropagation(); App.addProductToPOSCart('${p.id}')">
+            + Add to Cart
+          </button>
         </div>
       `;
     }).join('');
   },
 
   addProductToPOSCart(productId) {
-    const prod = this.productsCache.find(p => p.id === productId);
-    if (!prod) return;
+    const prod = this.productsCache.find(p => String(p.id) === String(productId));
+    if (!prod) {
+      State.showToast('Product not found in catalog', 'warning');
+      return;
+    }
     State.addToCart(prod, 1);
     this.renderCartUI();
+    State.showToast(`Added "${prod.name}" to cart`, 'success');
   },
 
   renderCartUI() {
@@ -721,7 +744,7 @@ const App = {
     if (State.cart.length === 0) {
       container.innerHTML = `
         <div class="empty-state" style="padding: 40px 10px;">
-          <p>Cart is empty.<br>Click items on the left to add them to this sale.</p>
+          <p>Cart is empty.<br>Click items on the left or press "+ Add to Cart".</p>
         </div>
       `;
       this.updatePOSSummary();
@@ -730,16 +753,17 @@ const App = {
 
     container.innerHTML = State.cart.map(item => `
       <div class="pos-cart-item">
+        ${item.image_url ? `<img src="${item.image_url}" class="cart-item-thumb" alt="${this.escape(item.product_name)}" onerror="this.style.display='none'">` : ''}
         <div class="cart-item-info">
-          <div class="cart-item-title">${item.product_name}</div>
-          <div class="cart-item-price">${State.formatMoney(item.unit_price)} / ${item.unit}</div>
+          <div class="cart-item-title">${this.escape(item.product_name)}</div>
+          <div class="cart-item-price">${State.formatMoney(item.unit_price)} / ${this.escape(item.unit || 'pcs')}</div>
         </div>
         <div class="cart-item-controls">
-          <button class="qty-btn" onclick="App.adjustCartItemQty(${item.product_id}, -1)">-</button>
-          <input type="number" class="qty-input" value="${item.quantity}" min="0.1" step="any" onchange="App.setCartItemQty(${item.product_id}, this.value)">
-          <button class="qty-btn" onclick="App.adjustCartItemQty(${item.product_id}, 1)">+</button>
-          <div style="font-weight: 700; min-width: 70px; text-align: right; font-size: 13px;">${State.formatMoney(item.total_price)}</div>
-          <button style="background: none; border: none; color: var(--danger); cursor: pointer; padding: 2px 6px;" onclick="App.removeCartItem(${item.product_id})">✕</button>
+          <button class="qty-btn" type="button" onclick="App.adjustCartItemQty('${item.product_id}', -1)">-</button>
+          <input type="number" class="qty-input" value="${item.quantity}" min="0.1" step="any" onchange="App.setCartItemQty('${item.product_id}', this.value)">
+          <button class="qty-btn" type="button" onclick="App.adjustCartItemQty('${item.product_id}', 1)">+</button>
+          <div style="font-weight: 700; min-width: 65px; text-align: right; font-size: 13px;">${State.formatMoney(item.total_price)}</div>
+          <button style="background: none; border: none; color: var(--danger); cursor: pointer; padding: 2px 6px; font-size: 14px; font-weight: bold;" title="Remove" onclick="App.removeCartItem('${item.product_id}')">✕</button>
         </div>
       </div>
     `).join('');
@@ -748,7 +772,7 @@ const App = {
   },
 
   adjustCartItemQty(productId, delta) {
-    const item = State.cart.find(i => i.product_id === productId);
+    const item = State.cart.find(i => String(i.product_id) === String(productId));
     if (item) {
       const newQty = item.quantity + delta;
       if (newQty <= 0) {
@@ -1288,7 +1312,8 @@ const App = {
               <h3 class="card-title">Stock Available & Products</h3>
               <p style="font-size: 12px; color: var(--text-muted);">Real-time inventory levels, buying costs, and selling prices</p>
             </div>
-            <div style="display: flex; gap: 10px;">
+            <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+              <button class="btn btn-secondary" onclick="App.showStockImportModal()">📁 Import Stock from File</button>
               <button class="btn btn-secondary" onclick="App.showStockMovementsModal()">Stock Movement History</button>
               <button class="btn btn-primary" onclick="App.showNewProductModal()">+ Add New Product</button>
             </div>
@@ -1308,14 +1333,18 @@ const App = {
             <div class="empty-state">
               <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"></path></svg>
               <h3>Inventory is currently empty</h3>
-              <p>Add your actual products, materials, or supplies to start tracking stock quantities and sales.</p>
-              <button class="btn btn-primary" onclick="App.showNewProductModal()">+ Add Your First Product</button>
+              <p>Add your products, materials, or import a stock file to start tracking stock quantities and sales.</p>
+              <div style="display: flex; gap: 10px; justify-content: center; margin-top: 12px;">
+                <button class="btn btn-primary" onclick="App.showNewProductModal()">+ Add Your First Product</button>
+                <button class="btn btn-secondary" onclick="App.showStockImportModal()">📁 Import Stock from File</button>
+              </div>
             </div>
           ` : `
             <div class="table-container">
               <table class="data-table" id="inventory-table">
                 <thead>
                   <tr>
+                    <th style="width: 50px;">Image</th>
                     <th>SKU / Code</th>
                     <th>Product / Material Name</th>
                     <th>Category</th>
@@ -1346,15 +1375,22 @@ const App = {
     return products.map(p => {
       const isLow = p.stock_quantity <= p.min_alert_quantity;
       const isOut = p.stock_quantity <= 0;
+      const hasImg = Boolean(p.image_url);
       return `
         <tr>
-          <td><code>${p.sku || 'N/A'}</code></td>
-          <td><strong>${p.name}</strong></td>
-          <td>${p.category || 'General'}</td>
+          <td>
+            ${hasImg 
+              ? `<img src="${p.image_url}" class="inventory-product-thumb" alt="${this.escape(p.name)}" onerror="this.onerror=null; this.outerHTML='<div class=\\'inventory-product-thumb-placeholder\\'>📦</div>';">` 
+              : `<div class="inventory-product-thumb-placeholder">📦</div>`
+            }
+          </td>
+          <td><code>${this.escape(p.sku || 'N/A')}</code></td>
+          <td><strong>${this.escape(p.name)}</strong></td>
+          <td>${this.escape(p.category || 'General')}</td>
           <td style="font-size: 14px; font-weight: bold; color: ${isOut ? 'var(--danger)' : (isLow ? '#d97706' : 'var(--text-main)')};">
             ${p.stock_quantity}
           </td>
-          <td>${p.unit || 'pcs'}</td>
+          <td>${this.escape(p.unit || 'pcs')}</td>
           <td>${State.formatMoney(p.cost_price)}</td>
           <td><strong>${State.formatMoney(p.selling_price)}</strong></td>
           <td><strong>${State.formatMoney(p.cost_price * p.stock_quantity)}</strong></td>
@@ -1365,10 +1401,10 @@ const App = {
           </td>
           <td>
             <div style="display: flex; gap: 6px;">
-              <button class="btn btn-sm btn-secondary" title="Restock or Adjust" onclick="App.showStockAdjustModal(${p.id})">
+              <button class="btn btn-sm btn-secondary" title="Restock or Adjust" onclick="App.showStockAdjustModal('${p.id}')">
                 Adjust
               </button>
-              <button class="btn btn-sm btn-secondary" title="Edit Product" onclick="App.showEditProductModal(${p.id})">
+              <button class="btn btn-sm btn-secondary" title="Edit Product" onclick="App.showEditProductModal('${p.id}')">
                 Edit
               </button>
             </div>
@@ -1395,13 +1431,13 @@ const App = {
   },
 
   showStockAdjustModal(productId) {
-    const p = this.productsCache.find(x => x.id === productId);
+    const p = this.productsCache.find(x => String(x.id) === String(productId));
     if (!p) return;
 
     const modal = document.getElementById('general-modal');
     document.getElementById('general-modal-title').textContent = `Adjust Stock for: ${p.name}`;
     document.getElementById('general-modal-body').innerHTML = `
-      <form id="stock-adjust-form" onsubmit="App.submitStockAdjust(event, ${p.id})">
+      <form id="stock-adjust-form" onsubmit="App.submitStockAdjust(event, '${p.id}')">
         <div style="background: #f8fafc; padding: 12px; border-radius: 6px; border: 1px solid var(--border); margin-bottom: 14px;">
           <div>Current Stock: <strong>${p.stock_quantity} ${p.unit}</strong></div>
           <div>Buying Cost: <strong>${State.formatMoney(p.cost_price)}</strong></div>
@@ -2835,17 +2871,108 @@ const App = {
   },
 
   // -------------------------------------------------------------
+  // PRODUCT IMAGE HANDLING & PREVIEW
+  // -------------------------------------------------------------
+  handleProductImageFile(e, prefix) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    if (file.size > 2.5 * 1024 * 1024) {
+      State.showToast('Image file too large (max 2.5MB)', 'warning');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      const dataUrl = event.target.result;
+      if (prefix === 'np') {
+        this.newProductImageBase64 = dataUrl;
+      } else {
+        this.editProductImageBase64 = dataUrl;
+      }
+      this.updateImagePreviewUI(prefix, dataUrl);
+    };
+    reader.readAsDataURL(file);
+  },
+
+  previewImageUrl(prefix, url) {
+    const trimmed = (url || '').trim();
+    if (prefix === 'np') {
+      this.newProductImageBase64 = trimmed;
+    } else {
+      this.editProductImageBase64 = trimmed;
+    }
+    this.updateImagePreviewUI(prefix, trimmed);
+  },
+
+  clearProductImage(prefix) {
+    if (prefix === 'np') {
+      this.newProductImageBase64 = '';
+    } else {
+      this.editProductImageBase64 = '';
+    }
+    const urlInput = document.getElementById(`${prefix}-image-url`);
+    if (urlInput) urlInput.value = '';
+    const fileInput = document.getElementById(`${prefix}-image-file`);
+    if (fileInput) fileInput.value = '';
+    this.updateImagePreviewUI(prefix, '');
+  },
+
+  updateImagePreviewUI(prefix, src) {
+    const imgTag = document.getElementById(`${prefix}-img-tag`);
+    const placeholder = document.getElementById(`${prefix}-preview-placeholder`);
+    const clearBtn = document.getElementById(`${prefix}-clear-img-btn`);
+    if (!imgTag || !placeholder) return;
+
+    if (src) {
+      imgTag.src = src;
+      imgTag.style.display = 'block';
+      placeholder.style.display = 'none';
+      if (clearBtn) clearBtn.style.display = 'inline-block';
+    } else {
+      imgTag.src = '';
+      imgTag.style.display = 'none';
+      placeholder.style.display = 'block';
+      if (clearBtn) clearBtn.style.display = 'none';
+    }
+  },
+
+  // -------------------------------------------------------------
   // COMMON MODAL BUILDERS (Products, Customers, Suppliers, Invoices)
   // -------------------------------------------------------------
   showNewProductModal() {
+    this.newProductImageBase64 = '';
     const modal = document.getElementById('general-modal');
     document.getElementById('general-modal-title').textContent = 'Add New Inventory Product';
     document.getElementById('general-modal-body').innerHTML = `
       <form id="new-prod-form" onsubmit="App.submitNewProduct(event)">
+        <!-- Product Image Section -->
+        <div class="product-image-upload-section">
+          <label class="form-label" style="font-weight: 700; margin-bottom: 8px;">Product Image (Optional)</label>
+          <div style="display: flex; gap: 16px; align-items: center;">
+            <div id="np-img-preview-box" class="product-image-preview-box">
+              <span id="np-preview-placeholder" style="color: #94a3b8; font-size: 11px; text-align: center; padding: 4px;">No Image</span>
+              <img id="np-img-tag" src="" style="display: none; width: 100%; height: 100%; object-fit: cover; border-radius: 6px;">
+            </div>
+            <div style="flex: 1;">
+              <div style="display: flex; gap: 8px; margin-bottom: 8px;">
+                <label class="btn btn-sm btn-secondary" style="cursor: pointer; display: inline-flex; align-items: center; gap: 6px;">
+                  <svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+                  <span>Upload Image File</span>
+                  <input type="file" id="np-image-file" accept="image/*" style="display: none;" onchange="App.handleProductImageFile(event, 'np')">
+                </label>
+                <button type="button" class="btn btn-sm btn-secondary" id="np-clear-img-btn" style="display: none;" onclick="App.clearProductImage('np')">Remove</button>
+              </div>
+              <input type="url" id="np-image-url" class="form-input" placeholder="Or enter image URL (https://...)" oninput="App.previewImageUrl('np', this.value)">
+              <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">Displays on POS cards and Inventory catalog</div>
+            </div>
+          </div>
+        </div>
+
         <div class="form-row">
           <div class="form-group">
             <label class="form-label">Product / Material Name</label>
-            <input type="text" id="np-name" class="form-input" placeholder="e.g. Cement Simba 32.5R" required>
+            <input type="text" id="np-name" class="form-input" placeholder="e.g. Cement Simba 32.5R" required autofocus>
           </div>
           <div class="form-group">
             <label class="form-label">Category</label>
@@ -2892,6 +3019,8 @@ const App = {
               <option value="boxes">Boxes</option>
               <option value="litres">Litres</option>
               <option value="trips">Trips</option>
+              <option value="sheets">Sheets</option>
+              <option value="bundles">Bundles</option>
             </select>
           </div>
           <div class="form-group">
@@ -2900,7 +3029,7 @@ const App = {
           </div>
         </div>
 
-        <button type="submit" class="btn btn-primary" style="width: 100%;">Save Product to Inventory</button>
+        <button type="submit" class="btn btn-primary btn-lg" style="width: 100%; margin-top: 6px;">Save Product to Inventory</button>
       </form>
     `;
     modal.classList.add('active');
@@ -2918,13 +3047,14 @@ const App = {
       stock_quantity: parseFloat(document.getElementById('np-stock').value) || 0,
       unit: document.getElementById('np-unit').value,
       min_alert_quantity: parseFloat(document.getElementById('np-alert').value) || 5,
+      image_url: this.newProductImageBase64 || '',
       user_id: State.currentUser?.id
     };
 
     try {
       const res = await API.addProduct(data);
       if (res && res.success) {
-        State.showToast('Product added successfully', 'success');
+        State.showToast(`Product "${data.name}" added successfully!`, 'success');
         document.getElementById('general-modal').classList.remove('active');
         if (State.currentRoute === 'inventory') {
           this.renderInventory(document.getElementById('content-area'));
@@ -2938,32 +3068,55 @@ const App = {
   },
 
   showEditProductModal(productId) {
-    const p = this.productsCache.find(x => x.id === productId);
+    const p = this.productsCache.find(x => String(x.id) === String(productId));
     if (!p) return;
 
+    this.editProductImageBase64 = p.image_url || '';
     const modal = document.getElementById('general-modal');
     document.getElementById('general-modal-title').textContent = `Edit Product: ${p.name}`;
     document.getElementById('general-modal-body').innerHTML = `
-      <form id="edit-prod-form" onsubmit="App.submitEditProduct(event, ${p.id})">
+      <form id="edit-prod-form" onsubmit="App.submitEditProduct(event, '${p.id}')">
+        <!-- Product Image Section -->
+        <div class="product-image-upload-section">
+          <label class="form-label" style="font-weight: 700; margin-bottom: 8px;">Product Image</label>
+          <div style="display: flex; gap: 16px; align-items: center;">
+            <div id="ep-img-preview-box" class="product-image-preview-box">
+              <span id="ep-preview-placeholder" style="${p.image_url ? 'display: none;' : ''} color: #94a3b8; font-size: 11px; text-align: center; padding: 4px;">No Image</span>
+              <img id="ep-img-tag" src="${p.image_url || ''}" style="${p.image_url ? 'display: block;' : 'display: none;'} width: 100%; height: 100%; object-fit: cover; border-radius: 6px;">
+            </div>
+            <div style="flex: 1;">
+              <div style="display: flex; gap: 8px; margin-bottom: 8px;">
+                <label class="btn btn-sm btn-secondary" style="cursor: pointer; display: inline-flex; align-items: center; gap: 6px;">
+                  <svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
+                  <span>Change Image File</span>
+                  <input type="file" id="ep-image-file" accept="image/*" style="display: none;" onchange="App.handleProductImageFile(event, 'ep')">
+                </label>
+                <button type="button" class="btn btn-sm btn-secondary" id="ep-clear-img-btn" style="${p.image_url ? 'display: inline-block;' : 'display: none;'}" onclick="App.clearProductImage('ep')">Remove</button>
+              </div>
+              <input type="url" id="ep-image-url" class="form-input" placeholder="Or enter image URL (https://...)" value="${p.image_url || ''}" oninput="App.previewImageUrl('ep', this.value)">
+            </div>
+          </div>
+        </div>
+
         <div class="form-row">
           <div class="form-group">
             <label class="form-label">Product Name</label>
-            <input type="text" id="ep-name" class="form-input" value="${p.name}" required>
+            <input type="text" id="ep-name" class="form-input" value="${this.escape(p.name)}" required>
           </div>
           <div class="form-group">
             <label class="form-label">Category</label>
-            <input type="text" id="ep-category" class="form-input" value="${p.category || 'General'}" required>
+            <input type="text" id="ep-category" class="form-input" value="${this.escape(p.category || 'General')}" required>
           </div>
         </div>
 
         <div class="form-row">
           <div class="form-group">
             <label class="form-label">SKU</label>
-            <input type="text" id="ep-sku" class="form-input" value="${p.sku || ''}">
+            <input type="text" id="ep-sku" class="form-input" value="${this.escape(p.sku || '')}">
           </div>
           <div class="form-group">
             <label class="form-label">Unit</label>
-            <input type="text" id="ep-unit" class="form-input" value="${p.unit || 'pcs'}">
+            <input type="text" id="ep-unit" class="form-input" value="${this.escape(p.unit || 'pcs')}">
           </div>
         </div>
 
@@ -2997,11 +3150,286 @@ const App = {
       unit: document.getElementById('ep-unit').value.trim(),
       cost_price: parseFloat(document.getElementById('ep-cost').value) || 0,
       selling_price: parseFloat(document.getElementById('ep-price').value) || 0,
-      min_alert_quantity: parseFloat(document.getElementById('ep-alert').value) || 5
+      min_alert_quantity: parseFloat(document.getElementById('ep-alert').value) || 5,
+      image_url: this.editProductImageBase64 || ''
     };
 
     try {
       await API.updateProduct(productId, data);
+      State.showToast('Product updated successfully', 'success');
+      document.getElementById('general-modal').classList.remove('active');
+      if (State.currentRoute === 'inventory') {
+        this.renderInventory(document.getElementById('content-area'));
+      } else if (State.currentRoute === 'pos') {
+        this.renderPOS(document.getElementById('content-area'));
+      }
+    } catch (err) {
+      State.showToast(err.message, 'error');
+    }
+  },
+
+  // -------------------------------------------------------------
+  // STOCK FILE IMPORT (CSV / EXCEL SPREADSHEET)
+  // -------------------------------------------------------------
+  showStockImportModal() {
+    this.importedStockProducts = [];
+    const modal = document.getElementById('general-modal');
+    document.getElementById('general-modal-title').textContent = 'Import Stock & Products from File';
+    document.getElementById('general-modal-body').innerHTML = `
+      <div style="margin-bottom: 14px;">
+        <p style="font-size: 13px; color: var(--text-muted); margin-bottom: 12px;">
+          Upload a stock CSV, Excel, or text file to add multiple products into your inventory at once.
+        </p>
+
+        <!-- Template Download Box -->
+        <div class="import-template-box">
+          <div>
+            <strong>Need a template?</strong>
+            <div style="font-size: 11.5px; color: var(--text-muted);">Download a pre-formatted sample CSV file ready for Excel or Google Sheets.</div>
+          </div>
+          <button type="button" class="btn btn-sm btn-secondary" onclick="App.downloadStockTemplate()">
+            <svg width="15" height="15" fill="none" stroke="currentColor" viewBox="0 0 24 24" style="margin-right: 4px;"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"></path></svg>
+            Download Sample CSV
+          </button>
+        </div>
+
+        <!-- Drag & Drop Zone -->
+        <div class="file-import-dropzone" onclick="document.getElementById('stock-file-input').click()" ondragover="event.preventDefault(); this.style.borderColor='#0f766e';" ondragleave="this.style.borderColor='#0d9488';" ondrop="App.handleStockFileDrop(event)">
+          <input type="file" id="stock-file-input" accept=".csv, .tsv, .txt, .json" style="display: none;" onchange="App.handleStockFileSelected(event)">
+          <svg width="40" height="40" fill="none" stroke="#0d9488" viewBox="0 0 24 24" style="margin: 0 auto 8px auto; display: block;"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"></path></svg>
+          <div style="font-size: 14px; font-weight: 700; color: #0f172a;">Click to browse or drag and drop your stock file here</div>
+          <div style="font-size: 12px; color: #64748b; margin-top: 4px;">Supports .CSV, .TSV, .TXT, and .JSON formats</div>
+        </div>
+
+        <div id="stock-import-preview-area" style="display: none;"></div>
+      </div>
+    `;
+    modal.classList.add('active');
+  },
+
+  downloadStockTemplate() {
+    const csvContent = 
+`Product Name,Category,SKU,Barcode,Cost Price,Selling Price,Stock Quantity,Unit,Min Alert Threshold,Image URL
+Simba Cement 32.5R,Cement,SIMBA-325,012345678901,17500,21000,100,bags,10,
+Steel Deformed Bars 12mm,Steel,ST-12MM,012345678902,28000,34000,50,pcs,5,
+White Primer Paint 20L,Paints,PNT-W20L,012345678903,65000,78000,20,buckets,2,
+PVC Pipe 4 Inch Class B,Plumbing,PVC-4IN,012345678904,18000,24000,30,pcs,5,
+Corrugated Iron Sheets Gauge 28,Roofing,SHT-G28,012345678905,31000,38000,80,sheets,15,`;
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = 'jengakwanza_stock_import_template.csv';
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    State.showToast('Sample template downloaded', 'success');
+  },
+
+  handleStockFileDrop(e) {
+    e.preventDefault();
+    e.currentTarget.style.borderColor = '#0d9488';
+    const files = e.dataTransfer?.files;
+    if (files && files.length > 0) {
+      this.readAndParseStockFile(files[0]);
+    }
+  },
+
+  handleStockFileSelected(e) {
+    const file = e.target.files?.[0];
+    if (file) {
+      this.readAndParseStockFile(file);
+    }
+  },
+
+  readAndParseStockFile(file) {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const content = e.target.result;
+      let parsed = [];
+      if (file.name.endsWith('.json')) {
+        try {
+          const json = JSON.parse(content);
+          parsed = Array.isArray(json) ? json : (json.products || []);
+        } catch (err) {
+          State.showToast('Invalid JSON file format', 'error');
+          return;
+        }
+      } else {
+        parsed = this.parseStockCSV(content);
+      }
+
+      if (!parsed || parsed.length === 0) {
+        State.showToast('No valid products detected in file. Please check column headers.', 'error');
+        return;
+      }
+
+      this.importedStockProducts = parsed;
+      this.renderStockImportPreview(parsed, file.name);
+    };
+    reader.readAsText(file);
+  },
+
+  parseStockCSV(text) {
+    const lines = text.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0);
+    if (lines.length < 2) return [];
+
+    const parseLine = (line, delimiter) => {
+      const result = [];
+      let current = '';
+      let inQuotes = false;
+      for (let i = 0; i < line.length; i++) {
+        const c = line[i];
+        if (c === '"') {
+          inQuotes = !inQuotes;
+        } else if (c === delimiter && !inQuotes) {
+          result.push(current.trim());
+          current = '';
+        } else {
+          current += c;
+        }
+      }
+      result.push(current.trim());
+      return result;
+    };
+
+    const firstLine = lines[0];
+    const delimiter = firstLine.includes('\t') ? '\t' : (firstLine.includes(';') ? ';' : ',');
+    const headers = parseLine(firstLine, delimiter).map(h => h.toLowerCase().replace(/[^a-z0-9_]/g, '_'));
+
+    const getField = (row, candidates) => {
+      for (const cand of candidates) {
+        const idx = headers.findIndex(h => h === cand || h.includes(cand));
+        if (idx !== -1 && row[idx] !== undefined) return row[idx];
+      }
+      return '';
+    };
+
+    const products = [];
+    for (let i = 1; i < lines.length; i++) {
+      const row = parseLine(lines[i], delimiter);
+      if (row.length === 0 || row.every(c => c === '')) continue;
+
+      const name = getField(row, ['name', 'product_name', 'item', 'description', 'title']);
+      if (!name) continue;
+
+      const category = getField(row, ['category', 'group', 'type']) || 'General';
+      const sku = getField(row, ['sku', 'code', 'item_code']);
+      const barcode = getField(row, ['barcode', 'upc', 'ean']);
+      const cost_price = parseFloat(getField(row, ['cost_price', 'buying_price', 'cost', 'purchase_price']) || 0) || 0;
+      const selling_price = parseFloat(getField(row, ['selling_price', 'price', 'retail_price', 'unit_price']) || 0) || 0;
+      const stock_quantity = parseFloat(getField(row, ['stock_quantity', 'quantity', 'stock', 'qty', 'initial_stock']) || 0) || 0;
+      const unit = getField(row, ['unit', 'uom', 'measure']) || 'pcs';
+      const min_alert_quantity = parseFloat(getField(row, ['min_alert_quantity', 'alert', 'min_stock', 'threshold']) || 5) || 5;
+      const image_url = getField(row, ['image_url', 'image', 'img', 'photo']);
+
+      products.push({
+        name,
+        category,
+        sku,
+        barcode,
+        cost_price,
+        selling_price,
+        stock_quantity,
+        unit,
+        min_alert_quantity,
+        image_url
+      });
+    }
+
+    return products;
+  },
+
+  renderStockImportPreview(products, filename) {
+    const area = document.getElementById('stock-import-preview-area');
+    if (!area) return;
+
+    const totalQty = products.reduce((sum, p) => sum + (parseFloat(p.stock_quantity) || 0), 0);
+    const totalCost = products.reduce((sum, p) => sum + ((parseFloat(p.stock_quantity) || 0) * (parseFloat(p.cost_price) || 0)), 0);
+
+    area.style.display = 'block';
+    area.innerHTML = `
+      <div style="background: #f0fdf4; border: 1px solid #bbf7d0; padding: 12px 14px; border-radius: 6px; margin-bottom: 14px;">
+        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
+          <div>
+            <strong style="color: #166534; font-size: 13.5px;">✓ File "${this.escape(filename)}" parsed successfully!</strong>
+            <div style="font-size: 12px; color: #15803d; margin-top: 2px;">
+              <strong>${products.length}</strong> products detected • <strong>${totalQty.toLocaleString()}</strong> total items • Asset Value: <strong>${State.formatMoney(totalCost)}</strong>
+            </div>
+          </div>
+          <button type="button" class="btn btn-sm btn-secondary" onclick="document.getElementById('stock-file-input').click()">Choose Another File</button>
+        </div>
+      </div>
+
+      <div class="import-preview-box">
+        <table class="data-table" style="font-size: 11.5px;">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Product Name</th>
+              <th>Category</th>
+              <th>SKU</th>
+              <th>Qty</th>
+              <th>Unit</th>
+              <th>Cost Price</th>
+              <th>Selling Price</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${products.slice(0, 50).map((p, idx) => `
+              <tr>
+                <td>${idx + 1}</td>
+                <td><strong>${this.escape(p.name)}</strong></td>
+                <td>${this.escape(p.category || 'General')}</td>
+                <td><code>${this.escape(p.sku || 'Auto')}</code></td>
+                <td><strong>${p.stock_quantity}</strong></td>
+                <td>${this.escape(p.unit || 'pcs')}</td>
+                <td>${State.formatMoney(p.cost_price)}</td>
+                <td style="color: var(--primary); font-weight: 700;">${State.formatMoney(p.selling_price)}</td>
+              </tr>
+            `).join('')}
+          </tbody>
+        </table>
+        ${products.length > 50 ? `<div style="padding: 8px; text-align: center; font-size: 11px; color: var(--text-muted); background: #f8fafc;">Showing first 50 of ${products.length} products</div>` : ''}
+      </div>
+
+      <button type="button" id="execute-import-btn" class="btn btn-primary btn-lg" style="width: 100%;" onclick="App.executeStockImport()">
+        🚀 Import All ${products.length} Products into Stock
+      </button>
+    `;
+  },
+
+  async executeStockImport() {
+    if (!this.importedStockProducts || this.importedStockProducts.length === 0) {
+      State.showToast('No products to import', 'warning');
+      return;
+    }
+
+    const btn = document.getElementById('execute-import-btn');
+    if (btn) {
+      btn.disabled = true;
+      btn.innerHTML = `<span class="spinner" style="width: 18px; height: 18px; border-width: 2px;"></span> Importing ${this.importedStockProducts.length} products to database...`;
+    }
+
+    try {
+      const res = await API.bulkAddProducts(this.importedStockProducts);
+      if (res && res.success) {
+        State.showToast(`Successfully imported ${this.importedStockProducts.length} products into inventory!`, 'success');
+        document.getElementById('general-modal').classList.remove('active');
+        if (State.currentRoute === 'inventory') {
+          this.renderInventory(document.getElementById('content-area'));
+        } else if (State.currentRoute === 'pos') {
+          this.renderPOS(document.getElementById('content-area'));
+        }
+      }
+    } catch (err) {
+      State.showToast(err.message || 'Error during bulk stock import', 'error');
+      if (btn) {
+        btn.disabled = false;
+        btn.innerHTML = `🚀 Retry Import`;
+      }
+    }
+  },
       State.showToast('Product updated successfully', 'success');
       document.getElementById('general-modal').classList.remove('active');
       this.renderInventory(document.getElementById('content-area'));

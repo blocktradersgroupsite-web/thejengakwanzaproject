@@ -70,6 +70,7 @@ CREATE TABLE IF NOT EXISTS products (
     selling_price REAL NOT NULL DEFAULT 0.0,
     stock_quantity REAL NOT NULL DEFAULT 0.0,
     min_alert_quantity REAL NOT NULL DEFAULT 5.0,
+    image_url TEXT,
     description TEXT,
     created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
     updated_at DATETIME DEFAULT CURRENT_TIMESTAMP

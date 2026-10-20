@@ -551,7 +551,7 @@ body {
   background: #ffffff;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  padding: 14px;
+  padding: 12px;
   cursor: pointer;
   transition: all 0.15s ease;
   display: flex;
@@ -565,12 +565,40 @@ body {
   box-shadow: var(--shadow-md);
 }
 
+.pos-product-thumb-wrap {
+  width: 100%;
+  height: 90px;
+  border-radius: 6px;
+  overflow: hidden;
+  background: #f8fafc;
+  border: 1px solid #f1f5f9;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 8px;
+}
+
+.pos-product-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.pos-product-no-img {
+  font-size: 26px;
+  opacity: 0.6;
+}
+
 .pos-product-name {
   font-weight: 600;
   font-size: 13.5px;
   color: var(--text-main);
   margin-bottom: 4px;
   line-height: 1.3;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
 }
 
 .pos-product-sku {
@@ -588,7 +616,7 @@ body {
 
 .pos-product-price {
   font-weight: 700;
-  font-size: 14px;
+  font-size: 13.5px;
   color: var(--primary);
 }
 
@@ -601,8 +629,22 @@ body {
 }
 
 .pos-product-stock.low {
+  background-color: var(--warning-light);
+  color: var(--warning);
+}
+
+.pos-product-stock.out {
   background-color: var(--danger-light);
   color: var(--danger);
+}
+
+.pos-add-cart-btn {
+  width: 100%;
+  margin-top: 8px;
+  padding: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  border-radius: 4px;
 }
 
 /* POS Cart Panel */
@@ -636,6 +678,17 @@ body {
   border-bottom: 1px solid var(--border);
 }
 
+.cart-item-thumb {
+  width: 38px;
+  height: 38px;
+  border-radius: 5px;
+  object-fit: cover;
+  border: 1px solid #e2e8f0;
+  margin-right: 10px;
+  flex-shrink: 0;
+  background: #f8fafc;
+}
+
 .cart-item-info {
   flex: 1;
   margin-right: 10px;
@@ -644,10 +697,96 @@ body {
 .cart-item-title {
   font-weight: 600;
   font-size: 13px;
+  line-height: 1.3;
 }
 
 .cart-item-price {
   font-size: 11.5px;
+  color: var(--text-muted);
+}
+
+/* Product Image Preview in Modals */
+.product-image-upload-section {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 8px;
+  padding: 14px;
+  margin-bottom: 16px;
+}
+
+.product-image-preview-box {
+  width: 80px;
+  height: 80px;
+  border-radius: 8px;
+  border: 2px dashed #cbd5e1;
+  background: #ffffff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+
+/* Inventory Table Product Thumbnail */
+.inventory-product-thumb {
+  width: 36px;
+  height: 36px;
+  border-radius: 5px;
+  object-fit: cover;
+  border: 1px solid #e2e8f0;
+  background: #f8fafc;
+  display: block;
+}
+
+.inventory-product-thumb-placeholder {
+  width: 36px;
+  height: 36px;
+  border-radius: 5px;
+  border: 1px dashed #cbd5e1;
+  background: #f8fafc;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  color: #94a3b8;
+}
+
+/* File Import Modal Styles */
+.file-import-dropzone {
+  border: 2px dashed #0d9488;
+  background: #f0fdfa;
+  border-radius: 8px;
+  padding: 28px 18px;
+  text-align: center;
+  cursor: pointer;
+  transition: all 0.2s;
+  margin-bottom: 14px;
+}
+
+.file-import-dropzone:hover {
+  background: #ccfbf1;
+  border-color: #0f766e;
+}
+
+.import-template-box {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  padding: 10px 14px;
+  margin-bottom: 16px;
+  font-size: 12.5px;
+}
+
+.import-preview-box {
+  max-height: 260px;
+  overflow-y: auto;
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  margin-bottom: 16px;
+}
   color: var(--text-muted);
 }
 
