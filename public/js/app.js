@@ -2673,69 +2673,6 @@ const App = {
         </form>
       </div>
 
-      <!-- Firebase Cloud Backend Configuration -->
-      <div class="card" style="border-top: 4px solid #f59e0b;">
-        <div class="card-header">
-          <div>
-            <h3 class="card-title">
-              <svg width="20" height="20" viewBox="0 0 24 24" fill="#f59e0b"><path d="M4.6 17.1L7.5 2.4c.1-.4.5-.6.9-.4l4.2 8-8 7.1zm14.8-3.4L17.7 3.3c-.1-.4-.6-.6-.9-.3l-3.3 6.3 5.9 4.4zM4.1 18.2l7.4 4.2c.3.2.7.2 1 0l7.4-4.2L4.1 18.2z"/></svg>
-              Firebase Cloud Backend & Vercel Sync
-            </h3>
-            <p style="font-size: 12px; color: var(--text-muted);">Connect Google Firebase Cloud Firestore for real-time cloud sync across devices and Vercel hosting</p>
-          </div>
-          <span class="badge ${FirebaseAdapter.isInitialized ? 'badge-success' : (FirebaseAdapter.hasConfig() ? 'badge-warning' : 'badge-neutral')}">
-            ${FirebaseAdapter.isInitialized ? 'Cloud Firestore Active' : (FirebaseAdapter.hasConfig() ? 'Configured (Connecting...)' : 'Local / Offline Mode')}
-          </span>
-        </div>
-
-        <div style="background: #fffbeb; border: 1px solid #fef3c7; border-radius: 6px; padding: 12px 16px; margin-bottom: 16px; font-size: 12.5px; color: #92400e;">
-          <strong>How to connect your Firebase Project:</strong><br>
-          1. Go to <a href="https://console.firebase.google.com" target="_blank" style="color: #b45309; text-decoration: underline;">Firebase Console</a> & create a project.<br>
-          2. Click <strong>Firestore Database</strong> -> Create database.<br>
-          3. Click <strong>Project Settings</strong> (gear icon) -> <strong>Your apps</strong> -> Add Web App (<code>&lt;/&gt;</code>) and paste the credentials below:
-        </div>
-
-        <form id="firebase-form" onsubmit="App.saveFirebaseConfig(event)">
-          <div class="form-row">
-            <div class="form-group">
-              <label class="form-label">Firebase API Key (apiKey)</label>
-              <input type="text" id="fb-api-key" class="form-input" value="${(window.FIREBASE_CONFIG && window.FIREBASE_CONFIG.apiKey) || ''}" placeholder="AIzaSy...">
-            </div>
-            <div class="form-group">
-              <label class="form-label">Project ID (projectId)</label>
-              <input type="text" id="fb-project-id" class="form-input" value="${(window.FIREBASE_CONFIG && window.FIREBASE_CONFIG.projectId) || ''}" placeholder="jengakwanza-pos">
-            </div>
-          </div>
-
-          <div class="form-row">
-            <div class="form-group">
-              <label class="form-label">Auth Domain (authDomain)</label>
-              <input type="text" id="fb-auth-domain" class="form-input" value="${(window.FIREBASE_CONFIG && window.FIREBASE_CONFIG.authDomain) || ''}" placeholder="jengakwanza-pos.firebaseapp.com">
-            </div>
-            <div class="form-group">
-              <label class="form-label">Storage Bucket (storageBucket)</label>
-              <input type="text" id="fb-storage-bucket" class="form-input" value="${(window.FIREBASE_CONFIG && window.FIREBASE_CONFIG.storageBucket) || ''}" placeholder="jengakwanza-pos.appspot.com">
-            </div>
-          </div>
-
-          <div class="form-row">
-            <div class="form-group">
-              <label class="form-label">Messaging Sender ID</label>
-              <input type="text" id="fb-sender-id" class="form-input" value="${(window.FIREBASE_CONFIG && window.FIREBASE_CONFIG.messagingSenderId) || ''}" placeholder="1234567890">
-            </div>
-            <div class="form-group">
-              <label class="form-label">App ID (appId)</label>
-              <input type="text" id="fb-app-id" class="form-input" value="${(window.FIREBASE_CONFIG && window.FIREBASE_CONFIG.appId) || ''}" placeholder="1:1234567890:web:abcdef">
-            </div>
-          </div>
-
-          <div style="display: flex; gap: 10px; margin-top: 10px;">
-            <button type="submit" class="btn btn-primary">Save Firebase Configuration</button>
-            <button type="button" class="btn btn-secondary" onclick="App.testFirebaseConnection()">Test Cloud Connection</button>
-          </div>
-        </form>
-      </div>
-
       <!-- Backup and Database Management -->
       <div class="card">
         <div class="card-header">
