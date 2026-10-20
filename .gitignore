@@ -15,10 +15,14 @@ node_modules/
 dist/
 .vercel/
 
-# Environment files
+# Environment & Secret files
 .env
 .env.local
 .env.*.local
+serviceAccountKey.json
+*firebase-adminsdk*.json
+*service_account*.json
+*credentials*.json
 
 # Logs
 *.log
