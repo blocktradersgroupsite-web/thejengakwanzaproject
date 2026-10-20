@@ -7,8 +7,19 @@ const App = {
   suppliersCache: [],
 
   async init() {
+    // 1. Register Service Worker for Instant Loading & Full Offline Mode
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('sw.js').then((reg) => {
+          console.log('✓ JENGAKWANZA PWA Service Worker active:', reg.scope);
+        }).catch((err) => {
+          console.warn('Service Worker registration skipped:', err);
+        });
+      });
+    }
+
     try {
-      // 1. Fetch System Settings
+      // 2. Fetch System Settings (Instant from Cache, background synced)
       const settingsRes = await API.getSettings();
       if (settingsRes && settingsRes.settings) {
         State.setSettings(settingsRes.settings);
@@ -17,13 +28,52 @@ const App = {
       console.warn('Initial settings load warning:', e);
     }
 
-    // 2. Check Authentication
+    this.updateConnectionStatusUI();
+
+    // 3. Check Authentication
     if (!State.currentUser) {
       this.showAuthPage();
     } else {
       this.hideAuthPage();
       this.checkShiftStatus();
       this.renderApp();
+    }
+  },
+
+  updateConnectionStatusUI() {
+    const pill = document.getElementById('connection-status-pill');
+    const dot = document.getElementById('connection-dot');
+    const text = document.getElementById('connection-text');
+    if (!pill || !dot || !text) return;
+
+    const isOnline = typeof FirebaseAdapter !== 'undefined' ? FirebaseAdapter.isOnline : navigator.onLine;
+    const isSyncing = typeof FirebaseAdapter !== 'undefined' ? FirebaseAdapter.syncInProgress : false;
+    const queue = typeof FirebaseAdapter !== 'undefined' ? FirebaseAdapter.getOfflineQueue() : [];
+
+    if (isSyncing) {
+      pill.className = 'connection-status-pill syncing';
+      dot.className = 'status-dot active';
+      text.textContent = 'Syncing...';
+    } else if (!isOnline || queue.length > 0) {
+      pill.className = 'connection-status-pill offline';
+      dot.className = 'status-dot inactive';
+      text.textContent = queue.length > 0 ? `Offline (${queue.length} pending)` : 'Offline Mode';
+    } else {
+      pill.className = 'connection-status-pill online';
+      dot.className = 'status-dot active';
+      text.textContent = 'Cloud Synced';
+    }
+  },
+
+  async triggerManualSync() {
+    if (!navigator.onLine) {
+      State.showToast('You are currently offline. Local changes will sync when connected.', 'warning');
+      return;
+    }
+    if (typeof FirebaseAdapter !== 'undefined') {
+      State.showToast('Syncing local data with Firebase Cloud...', 'info');
+      await FirebaseAdapter.processOfflineQueue();
+      this.updateConnectionStatusUI();
     }
   },
 

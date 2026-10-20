@@ -1,11 +1,14 @@
-// JENGAKWANZA Firebase Cloud Backend Engine
-// Full Dual-Mode Support:
-// 1. Firebase Realtime Database REST Engine (Instant, zero-dependency, ultra-fast on Vercel)
-// 2. Cloud Firestore Modular SDK (Google Cloud Firestore document database)
+// JENGAKWANZA High-Performance Offline & Firebase Cloud Engine
+// Ultra-fast Local Cache + Automatic Background Cloud Sync + Offline Queue
 
 const FirebaseAdapter = {
   dbUrl: "https://jengakwanzaltd-1409a-default-rtdb.firebaseio.com",
   isInitialized: true,
+  isOnline: navigator.onLine,
+  syncInProgress: false,
+  memoryCache: {},
+  CACHE_PREFIX: 'jk_cache_',
+  QUEUE_KEY: 'jk_offline_queue',
 
   hasConfig() {
     return Boolean(this.dbUrl && window.FIREBASE_CONFIG && window.FIREBASE_CONFIG.projectId);
@@ -13,48 +16,276 @@ const FirebaseAdapter = {
 
   async init() {
     this.isInitialized = true;
-    console.log('✓ Firebase Cloud Backend connected to:', this.dbUrl);
+    this.loadAllCaches();
+    this.setupNetworkListeners();
+    console.log('✓ JENGAKWANZA Offline Engine & Cloud Sync initialized');
+
+    // Attempt initial queue sync if online
+    if (this.isOnline) {
+      setTimeout(() => this.processOfflineQueue(), 1000);
+    }
     return true;
   },
 
-  // Helper for Realtime Database REST calls
-  async rtdb(path, method = 'GET', data = null) {
+  setupNetworkListeners() {
+    window.addEventListener('online', () => {
+      this.isOnline = true;
+      console.log('🌐 Network connected: Online mode active');
+      this.updateStatusUI();
+      this.processOfflineQueue();
+    });
+
+    window.addEventListener('offline', () => {
+      this.isOnline = false;
+      console.log('📡 Network disconnected: Offline local mode active');
+      this.updateStatusUI();
+    });
+
+    // Periodic queue check every 15 seconds
+    setInterval(() => {
+      if (navigator.onLine && !this.syncInProgress) {
+        this.processOfflineQueue();
+      }
+    }, 15000);
+  },
+
+  updateStatusUI() {
+    if (typeof App !== 'undefined' && App.updateConnectionStatusUI) {
+      App.updateConnectionStatusUI();
+    }
+  },
+
+  // -------------------------------------------------------------
+  // CACHE & STORAGE SUBSYSTEM
+  // -------------------------------------------------------------
+  loadAllCaches() {
+    const collections = ['settings', 'users', 'products', 'customers', 'orders', 'expenses', 'work_shifts', 'delivery_notes', 'purchase_orders', 'debtor_payments', 'capital_ledger', 'stock_movements'];
+    collections.forEach(col => {
+      try {
+        const stored = localStorage.getItem(this.CACHE_PREFIX + col);
+        if (stored) {
+          this.memoryCache[col] = JSON.parse(stored);
+        }
+      } catch (e) {
+        console.warn(`Failed loading cache for ${col}:`, e);
+      }
+    });
+
+    // Provide baseline company settings if none cached
+    if (!this.memoryCache.settings) {
+      this.memoryCache.settings = {
+        company_name: 'JENGAKWANZA LIMITED',
+        tagline: 'Building Excellence & Quality Supplies',
+        phone_numbers: '0788989889 / 0713550104',
+        address: 'P.O.BOX 14991 ARUSHA',
+        email: 'jengakwanzaltd@gmail.com',
+        currency: 'TZS',
+        currency_symbol: 'TSh',
+        logo_url: 'assets/logo.jpg',
+        tax_rate: '0',
+        receipt_footer: 'Thank you for choosing JENGAKWANZA LIMITED! Goods once sold are not returnable without valid receipt.',
+        cash_balance: 0.0,
+        bank_balance: 0.0,
+        mobile_money_balance: 0.0
+      };
+      this.setCache('settings', this.memoryCache.settings);
+    }
+  },
+
+  getCache(collection) {
+    if (this.memoryCache[collection] !== undefined) {
+      return this.memoryCache[collection];
+    }
+    try {
+      const stored = localStorage.getItem(this.CACHE_PREFIX + collection);
+      if (stored) {
+        this.memoryCache[collection] = JSON.parse(stored);
+        return this.memoryCache[collection];
+      }
+    } catch (e) {}
+    return null;
+  },
+
+  setCache(collection, data) {
+    this.memoryCache[collection] = data;
+    try {
+      localStorage.setItem(this.CACHE_PREFIX + collection, JSON.stringify(data));
+    } catch (e) {
+      console.warn(`LocalStorage quota exceeded for ${collection}:`, e);
+    }
+  },
+
+  getOfflineQueue() {
+    try {
+      const q = localStorage.getItem(this.QUEUE_KEY);
+      return q ? JSON.parse(q) : [];
+    } catch (e) {
+      return [];
+    }
+  },
+
+  saveOfflineQueue(queue) {
+    try {
+      localStorage.setItem(this.QUEUE_KEY, JSON.stringify(queue));
+    } catch (e) {}
+    this.updateStatusUI();
+  },
+
+  queueMutation(path, method, data, description = '') {
+    const queue = this.getOfflineQueue();
+    queue.push({
+      id: `${Date.now()}_${Math.random().toString(36).substr(2, 5)}`,
+      path,
+      method,
+      data,
+      description,
+      createdAt: new Date().toISOString()
+    });
+    this.saveOfflineQueue(queue);
+    console.log(`📦 Queued offline action [${description}]: ${queue.length} pending items`);
+  },
+
+  async processOfflineQueue() {
+    if (this.syncInProgress || !navigator.onLine) return;
+    const queue = this.getOfflineQueue();
+    if (queue.length === 0) {
+      this.isOnline = true;
+      this.updateStatusUI();
+      return;
+    }
+
+    this.syncInProgress = true;
+    this.updateStatusUI();
+    console.log(`🔄 Flushing offline queue (${queue.length} pending operations)...`);
+
+    const remaining = [];
+    for (const item of queue) {
+      try {
+        await this.rawFetch(item.path, item.method, item.data, 6000);
+      } catch (err) {
+        console.warn(`Failed syncing queue item [${item.description}], will retry:`, err.message);
+        remaining.push(item);
+        // If network error, stop flushing this cycle
+        if (!navigator.onLine || err.name === 'AbortError' || err.message.includes('fetch')) {
+          this.isOnline = false;
+          break;
+        }
+      }
+    }
+
+    this.saveOfflineQueue(remaining);
+    this.syncInProgress = false;
+    this.isOnline = navigator.onLine;
+    this.updateStatusUI();
+
+    if (remaining.length === 0) {
+      console.log('✓ All offline data synchronized with Firebase Cloud successfully!');
+      if (typeof State !== 'undefined' && State.showToast) {
+        State.showToast('Offline changes synchronized with Cloud!', 'success');
+      }
+    }
+  },
+
+  // Direct fetch with timeout
+  async rawFetch(path, method = 'GET', data = null, timeoutMs = 4500) {
     const url = `${this.dbUrl}/${path}.json`;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+
     const opts = {
       method,
-      headers: { 'Content-Type': 'application/json' }
+      headers: { 'Content-Type': 'application/json' },
+      signal: controller.signal
     };
     if (data && (method === 'POST' || method === 'PUT' || method === 'PATCH')) {
       opts.body = JSON.stringify(data);
     }
-    const res = await fetch(url, opts);
-    if (!res.ok) {
-      throw new Error(`Firebase RTDB error: HTTP ${res.status}`);
+
+    try {
+      const res = await fetch(url, opts);
+      clearTimeout(timeoutId);
+      if (!res.ok) {
+        throw new Error(`Firebase RTDB HTTP ${res.status}`);
+      }
+      this.isOnline = true;
+      return await res.json();
+    } catch (err) {
+      clearTimeout(timeoutId);
+      this.isOnline = false;
+      throw err;
     }
-    return await res.json();
   },
 
-  // Settings
+  // Universal RTDB helper that falls back gracefully
+  async rtdb(path, method = 'GET', data = null) {
+    try {
+      if (!navigator.onLine) {
+        throw new Error('Offline (Network disconnected)');
+      }
+      return await this.rawFetch(path, method, data, 4500);
+    } catch (err) {
+      this.isOnline = false;
+      this.updateStatusUI();
+      // For mutation operations while offline, queue for sync
+      if (method !== 'GET') {
+        this.queueMutation(path, method, data, `${method} ${path}`);
+        return { success: true, offline: true };
+      }
+      throw err;
+    }
+  },
+
+  // -------------------------------------------------------------
+  // 1. SETTINGS
+  // -------------------------------------------------------------
   async getSettings() {
-    const s = await this.rtdb('settings');
-    return { success: true, settings: s || {} };
+    const cached = this.getCache('settings');
+    // Background refresh
+    if (navigator.onLine) {
+      this.rawFetch('settings', 'GET', null, 3000).then(s => {
+        if (s) this.setCache('settings', s);
+      }).catch(() => {});
+    }
+    return { success: true, settings: cached || {} };
   },
 
   async saveSettings(data) {
+    const current = this.getCache('settings') || {};
+    const updated = { ...current, ...data };
+    this.setCache('settings', updated);
+
+    // Sync
     await this.rtdb('settings', 'PATCH', data);
-    return { success: true, message: 'Settings saved to Firebase Cloud' };
+    return { success: true, message: 'Settings saved' };
   },
 
-  // Workers
+  // -------------------------------------------------------------
+  // 2. WORKERS
+  // -------------------------------------------------------------
   async getWorkers() {
-    const raw = await this.rtdb('users');
+    const cached = this.getCache('users');
     let workers = [];
-    if (raw) {
-      if (Array.isArray(raw)) {
-        workers = raw.filter(Boolean);
-      } else {
-        workers = Object.keys(raw).map(k => ({ id: k, ...raw[k] }));
-      }
+    if (cached) {
+      workers = Array.isArray(cached) ? cached : Object.keys(cached).map(k => ({ id: k, ...cached[k] }));
+    }
+
+    if (navigator.onLine) {
+      this.rawFetch('users', 'GET', null, 3000).then(raw => {
+        if (raw) this.setCache('users', raw);
+      }).catch(() => {});
+    }
+
+    // Default admin if nothing stored
+    if (workers.length === 0) {
+      workers = [{
+        id: 'admin',
+        username: 'admin',
+        full_name: 'System Administrator',
+        role: 'Admin',
+        phone: '0788989889',
+        pin_hash: 'admin123',
+        active: 1
+      }];
     }
     return { success: true, workers };
   },
@@ -68,88 +299,114 @@ const FirebaseAdapter = {
       active: 1,
       created_at: new Date().toISOString()
     };
+
+    const current = this.getCache('users') || {};
+    current[id] = worker;
+    this.setCache('users', current);
+
     await this.rtdb(`users/${id}`, 'PUT', worker);
     return { success: true, id };
   },
 
   async updateWorker(id, data) {
+    const current = this.getCache('users') || {};
+    if (current[id]) {
+      current[id] = { ...current[id], ...data };
+      this.setCache('users', current);
+    }
     await this.rtdb(`users/${id}`, 'PATCH', data);
     return { success: true };
   },
 
-  // Shifts
+  // -------------------------------------------------------------
+  // 3. SHIFTS
+  // -------------------------------------------------------------
   async getShifts(date) {
     const targetDate = date || new Date().toISOString().split('T')[0];
-    const raw = await this.rtdb('work_shifts');
-    let shifts = [];
-    if (raw) {
-      shifts = Object.keys(raw).map(k => ({ id: k, ...raw[k] }));
-    }
-    const filtered = shifts.filter(s => s.work_date === targetDate);
+    const cached = this.getCache('work_shifts') || {};
+    let shifts = Object.keys(cached).map(k => ({ id: k, ...cached[k] }));
 
-    // Attach worker metadata
-    const wRes = await this.getWorkers();
+    if (navigator.onLine) {
+      this.rawFetch('work_shifts', 'GET', null, 3000).then(raw => {
+        if (raw) this.setCache('work_shifts', raw);
+      }).catch(() => {});
+    }
+
+    const filtered = shifts.filter(s => s.work_date === targetDate);
+    const workers = (await this.getWorkers()).workers || [];
     const wMap = {};
-    (wRes.workers || []).forEach(w => { wMap[w.id] = w; wMap[w.username] = w; });
+    workers.forEach(w => { wMap[w.id] = w; wMap[w.username] = w; });
 
     filtered.forEach(s => {
       const w = wMap[s.user_id] || {};
       s.worker_name = s.worker_name || w.full_name || 'Staff';
-      s.worker_role = s.worker_role || w.role || 'Cashier';
+      s.worker_role = s.worker_role || w.role || 'Staff';
       s.worker_phone = s.worker_phone || w.phone || '';
     });
-
-    return { success: true, date: targetDate, shifts: filtered };
+    return { success: true, shifts: filtered };
   },
 
   async clockIn(data) {
     const id = Date.now().toString();
     const shift = {
       id,
-      ...data,
+      user_id: data.user_id,
+      work_date: new Date().toISOString().split('T')[0],
       clock_in: new Date().toISOString(),
-      clock_out: null,
+      opening_cash: parseFloat(data.opening_cash || 0),
+      notes: data.notes || '',
       created_at: new Date().toISOString()
     };
+
+    const current = this.getCache('work_shifts') || {};
+    current[id] = shift;
+    this.setCache('work_shifts', current);
+
     await this.rtdb(`work_shifts/${id}`, 'PUT', shift);
     return { success: true, shift_id: id };
   },
 
   async clockOut(data) {
-    if (data.shift_id) {
-      await this.rtdb(`work_shifts/${data.shift_id}`, 'PATCH', {
-        clock_out: new Date().toISOString(),
-        closing_cash: data.closing_cash || 0,
-        notes: data.notes || ''
-      });
-    } else {
-      const raw = await this.rtdb('work_shifts');
-      if (raw) {
-        for (const k of Object.keys(raw)) {
-          if (raw[k].user_id == data.user_id && !raw[k].clock_out) {
-            await this.rtdb(`work_shifts/${k}`, 'PATCH', {
-              clock_out: new Date().toISOString(),
-              closing_cash: data.closing_cash || 0,
-              notes: data.notes || ''
-            });
-          }
-        }
+    const today = new Date().toISOString().split('T')[0];
+    const current = this.getCache('work_shifts') || {};
+    let targetKey = null;
+
+    Object.keys(current).forEach(k => {
+      const s = current[k];
+      if (s.user_id == data.user_id && s.work_date === today && !s.clock_out) {
+        targetKey = k;
       }
+    });
+
+    if (targetKey) {
+      const updateData = {
+        clock_out: new Date().toISOString(),
+        closing_cash: parseFloat(data.closing_cash || 0),
+        closing_notes: data.notes || ''
+      };
+      current[targetKey] = { ...current[targetKey], ...updateData };
+      this.setCache('work_shifts', current);
+      await this.rtdb(`work_shifts/${targetKey}`, 'PATCH', updateData);
     }
     return { success: true };
   },
 
-  // Products & Inventory
+  // -------------------------------------------------------------
+  // 4. PRODUCTS & INVENTORY
+  // -------------------------------------------------------------
   async getProducts() {
-    const raw = await this.rtdb('products');
+    const cached = this.getCache('products');
     let products = [];
-    if (raw) {
-      if (Array.isArray(raw)) {
-        products = raw.filter(Boolean);
-      } else {
-        products = Object.keys(raw).map(k => ({ id: k, ...raw[k] }));
-      }
+    if (cached) {
+      products = Array.isArray(cached) ? cached.filter(Boolean) : Object.keys(cached).map(k => ({ id: k, ...cached[k] }));
     }
+
+    if (navigator.onLine) {
+      this.rawFetch('products', 'GET', null, 3000).then(raw => {
+        if (raw) this.setCache('products', raw);
+      }).catch(() => {});
+    }
+
     return { success: true, products };
   },
 
@@ -162,22 +419,35 @@ const FirebaseAdapter = {
       cost_price: parseFloat(data.cost_price || 0),
       selling_price: parseFloat(data.selling_price || 0),
       min_alert_quantity: parseFloat(data.min_alert_quantity || 5),
+      image_url: data.image_url || '',
       created_at: new Date().toISOString()
     };
+
+    // Update local cache immediately
+    const current = this.getCache('products') || {};
+    current[id] = prod;
+    this.setCache('products', current);
+
+    // Push to RTDB / queue
     await this.rtdb(`products/${id}`, 'PUT', prod);
 
     if (prod.stock_quantity > 0) {
-      const mId = Date.now().toString();
-      await this.rtdb(`stock_movements/${mId}`, 'PUT', {
+      const mId = (Date.now() + 1).toString();
+      const movement = {
+        id: mId,
         product_id: id,
         product_name: data.name,
-        movement_type: 'RESTOCK',
+        movement_type: 'INITIAL_STOCK',
         quantity: prod.stock_quantity,
         balance_after: prod.stock_quantity,
         unit_cost: prod.cost_price,
         notes: 'Initial stock setup',
         created_at: new Date().toISOString()
-      });
+      };
+      const movs = this.getCache('stock_movements') || {};
+      movs[mId] = movement;
+      this.setCache('stock_movements', movs);
+      await this.rtdb(`stock_movements/${mId}`, 'PUT', movement);
     }
 
     return { success: true, id, sku: prod.sku };
@@ -189,6 +459,9 @@ const FirebaseAdapter = {
     const movementPatch = {};
     const nowTs = Date.now();
     const nowIso = new Date().toISOString();
+
+    const currentProds = this.getCache('products') || {};
+    const currentMovs = this.getCache('stock_movements') || {};
 
     productsList.forEach((data, idx) => {
       const id = (nowTs + idx).toString();
@@ -209,10 +482,12 @@ const FirebaseAdapter = {
         created_at: nowIso
       };
       patchObj[id] = prod;
+      currentProds[id] = prod;
 
       if (prod.stock_quantity > 0) {
         const mId = (nowTs + idx + 500000).toString();
-        movementPatch[mId] = {
+        const m = {
+          id: mId,
           product_id: id,
           product_name: prod.name,
           movement_type: 'INITIAL_STOCK',
@@ -222,78 +497,113 @@ const FirebaseAdapter = {
           notes: 'Bulk stock import from file',
           created_at: nowIso
         };
+        movementPatch[mId] = m;
+        currentMovs[mId] = m;
       }
     });
 
+    // Save locally immediately
+    this.setCache('products', currentProds);
+    this.setCache('stock_movements', currentMovs);
+
+    // Sync
     await this.rtdb('products', 'PATCH', patchObj);
     if (Object.keys(movementPatch).length > 0) {
       await this.rtdb('stock_movements', 'PATCH', movementPatch);
     }
+
     return { success: true, count: productsList.length };
   },
 
   async updateProduct(id, data) {
+    const current = this.getCache('products') || {};
+    if (current[id]) {
+      current[id] = {
+        ...current[id],
+        ...data,
+        cost_price: parseFloat(data.cost_price !== undefined ? data.cost_price : current[id].cost_price),
+        selling_price: parseFloat(data.selling_price !== undefined ? data.selling_price : current[id].selling_price),
+        min_alert_quantity: parseFloat(data.min_alert_quantity !== undefined ? data.min_alert_quantity : current[id].min_alert_quantity),
+        image_url: data.image_url !== undefined ? data.image_url : (current[id].image_url || ''),
+        updated_at: new Date().toISOString()
+      };
+      this.setCache('products', current);
+    }
     await this.rtdb(`products/${id}`, 'PATCH', {
       ...data,
-      cost_price: parseFloat(data.cost_price || 0),
-      selling_price: parseFloat(data.selling_price || 0),
       updated_at: new Date().toISOString()
     });
     return { success: true };
   },
 
   async deleteProduct(id) {
+    const current = this.getCache('products') || {};
+    delete current[id];
+    this.setCache('products', current);
     await this.rtdb(`products/${id}`, 'DELETE');
     return { success: true };
   },
 
   async adjustStock(data) {
-    const prod = await this.rtdb(`products/${data.product_id}`);
-    if (!prod) throw new Error('Product not found in Firebase');
+    const { product_id, quantity, movement_type, notes, unit_cost, user_id } = data;
+    const current = this.getCache('products') || {};
+    const prod = current[product_id];
+    if (!prod) throw new Error('Product not found in local catalog');
 
-    const newBal = Math.max(0, (parseFloat(prod.stock_quantity) || 0) + parseFloat(data.quantity || 0));
-    await this.rtdb(`products/${data.product_id}`, 'PATCH', {
-      stock_quantity: newBal,
-      cost_price: data.unit_cost > 0 ? parseFloat(data.unit_cost) : prod.cost_price,
-      updated_at: new Date().toISOString()
-    });
+    const prevQty = prod.stock_quantity || 0;
+    const newQty = Math.max(0, prevQty + quantity);
+    prod.stock_quantity = newQty;
+    if (unit_cost > 0) prod.cost_price = unit_cost;
+    current[product_id] = prod;
+    this.setCache('products', current);
 
+    // Record movement
     const mId = Date.now().toString();
-    await this.rtdb(`stock_movements/${mId}`, 'PUT', {
-      product_id: data.product_id,
+    const mov = {
+      id: mId,
+      product_id,
       product_name: prod.name,
-      movement_type: data.movement_type,
-      quantity: data.quantity,
-      balance_after: newBal,
-      unit_cost: data.unit_cost || prod.cost_price,
-      notes: data.notes || '',
+      movement_type,
+      quantity,
+      previous_quantity: prevQty,
+      balance_after: newQty,
+      unit_cost: unit_cost || prod.cost_price,
+      notes: notes || '',
+      user_id: user_id || '',
       created_at: new Date().toISOString()
-    });
+    };
+    const movs = this.getCache('stock_movements') || {};
+    movs[mId] = mov;
+    this.setCache('stock_movements', movs);
 
-    return { success: true, new_balance: newBal };
+    await this.rtdb(`products/${product_id}`, 'PATCH', { stock_quantity: newQty });
+    await this.rtdb(`stock_movements/${mId}`, 'PUT', mov);
+    return { success: true, new_quantity: newQty };
   },
 
   async getStockMovements(limitNum = 100) {
-    const raw = await this.rtdb('stock_movements');
-    let mvs = [];
-    if (raw) {
-      mvs = Object.keys(raw).map(k => ({ id: k, ...raw[k] }));
-    }
-    mvs.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-    return { success: true, movements: mvs.slice(0, limitNum) };
+    const cached = this.getCache('stock_movements') || {};
+    let movs = Object.keys(cached).map(k => ({ id: k, ...cached[k] }));
+    movs.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    return { success: true, movements: movs.slice(0, limitNum) };
   },
 
-  // Customers & Debtors
+  // -------------------------------------------------------------
+  // 5. CUSTOMERS & DEBTORS
+  // -------------------------------------------------------------
   async getCustomers() {
-    const raw = await this.rtdb('customers');
+    const cached = this.getCache('customers');
     let customers = [];
-    if (raw) {
-      if (Array.isArray(raw)) {
-        customers = raw.filter(Boolean);
-      } else {
-        customers = Object.keys(raw).map(k => ({ id: k, ...raw[k] }));
-      }
+    if (cached) {
+      customers = Array.isArray(cached) ? cached : Object.keys(cached).map(k => ({ id: k, ...cached[k] }));
     }
+
+    if (navigator.onLine) {
+      this.rawFetch('customers', 'GET', null, 3000).then(raw => {
+        if (raw) this.setCache('customers', raw);
+      }).catch(() => {});
+    }
+
     return { success: true, customers };
   },
 
@@ -306,412 +616,490 @@ const FirebaseAdapter = {
       current_credit: 0.0,
       created_at: new Date().toISOString()
     };
+    const current = this.getCache('customers') || {};
+    current[id] = cust;
+    this.setCache('customers', current);
+
     await this.rtdb(`customers/${id}`, 'PUT', cust);
     return { success: true, id };
   },
 
   async updateCustomer(id, data) {
+    const current = this.getCache('customers') || {};
+    if (current[id]) {
+      current[id] = { ...current[id], ...data };
+      this.setCache('customers', current);
+    }
     await this.rtdb(`customers/${id}`, 'PATCH', data);
     return { success: true };
   },
 
   async getDebtors() {
     const res = await this.getCustomers();
-    const debtors = (res.customers || []).filter(c => parseFloat(c.current_credit || 0) > 0.01);
+    const debtors = (res.customers || []).filter(c => parseFloat(c.current_credit || 0) > 0);
     return { success: true, debtors };
   },
 
   async payDebtor(data) {
-    const cust = await this.rtdb(`customers/${data.customer_id}`);
+    const { customer_id, amount, payment_method, notes, user_id } = data;
+    const custs = this.getCache('customers') || {};
+    const cust = custs[customer_id];
     if (!cust) throw new Error('Customer not found');
 
-    const newBal = Math.max(0, (parseFloat(cust.current_credit) || 0) - parseFloat(data.amount));
-    await this.rtdb(`customers/${data.customer_id}`, 'PATCH', { current_credit: newBal });
+    const payAmount = parseFloat(amount || 0);
+    const prevCredit = parseFloat(cust.current_credit || 0);
+    const newCredit = Math.max(0, prevCredit - payAmount);
+    cust.current_credit = newCredit;
+    custs[customer_id] = cust;
+    this.setCache('customers', custs);
 
-    const payNum = `JK-RCT-${Date.now().toString().slice(-6)}`;
+    // Increase cash balance
+    const settings = this.getCache('settings') || {};
+    settings.cash_balance = (parseFloat(settings.cash_balance) || 0) + payAmount;
+    this.setCache('settings', settings);
+
+    // Save payment receipt
     const pId = Date.now().toString();
-    await this.rtdb(`debtor_payments/${pId}`, 'PUT', {
-      payment_number: payNum,
-      customer_id: data.customer_id,
+    const payment = {
+      id: pId,
+      customer_id,
       customer_name: cust.name,
-      amount: parseFloat(data.amount),
-      payment_method: data.payment_method,
-      payment_date: data.payment_date,
-      notes: data.notes || '',
-      created_at: new Date().toISOString()
-    });
-
-    // Update settings cash/bank balance
-    const field = data.payment_method === 'BANK' ? 'bank_balance' : (data.payment_method === 'CASH' ? 'cash_balance' : 'mobile_money_balance');
-    const s = await this.rtdb('settings');
-    if (s) {
-      const cur = parseFloat(s[field] || 0);
-      await this.rtdb('settings', 'PATCH', { [field]: cur + parseFloat(data.amount) });
-    }
-
-    return { success: true, payment_number: payNum, new_credit_balance: newBal };
-  },
-
-  // Suppliers & POs
-  async getSuppliers() {
-    const raw = await this.rtdb('suppliers');
-    let suppliers = [];
-    if (raw) {
-      suppliers = Object.keys(raw).map(k => ({ id: k, ...raw[k] }));
-    }
-    return { success: true, suppliers };
-  },
-
-  async addSupplier(data) {
-    const id = Date.now().toString();
-    await this.rtdb(`suppliers/${id}`, 'PUT', { id, ...data, created_at: new Date().toISOString() });
-    return { success: true, id };
-  },
-
-  async getPurchaseOrders() {
-    const raw = await this.rtdb('purchase_orders');
-    let pos = [];
-    if (raw) {
-      pos = Object.keys(raw).map(k => ({ id: k, ...raw[k] }));
-    }
-    pos.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-    return { success: true, purchase_orders: pos };
-  },
-
-  async createPurchaseOrder(data) {
-    const id = Date.now().toString();
-    const poNum = `JK-PO-${Date.now().toString().slice(-6)}`;
-    const po = {
-      id,
-      po_number: poNum,
-      ...data,
-      status: 'PENDING',
+      amount: payAmount,
+      previous_credit: prevCredit,
+      new_credit_balance: newCredit,
+      payment_method: payment_method || 'CASH',
+      payment_number: `RCP-${Date.now().toString().substr(-6)}`,
+      notes: notes || '',
+      user_id: user_id || '',
       created_at: new Date().toISOString()
     };
-    await this.rtdb(`purchase_orders/${id}`, 'PUT', po);
-    return { success: true, po_id: id, po_number: poNum };
+    const payments = this.getCache('debtor_payments') || {};
+    payments[pId] = payment;
+    this.setCache('debtor_payments', payments);
+
+    await this.rtdb(`customers/${customer_id}`, 'PATCH', { current_credit: newCredit });
+    await this.rtdb(`settings`, 'PATCH', { cash_balance: settings.cash_balance });
+    await this.rtdb(`debtor_payments/${pId}`, 'PUT', payment);
+
+    return { success: true, payment_number: payment.payment_number, payment };
   },
 
-  async receivePurchaseOrder(poId, userId) {
-    const po = await this.rtdb(`purchase_orders/${poId}`);
-    if (!po) throw new Error('PO not found');
-    if (po.status === 'RECEIVED') throw new Error('PO already received');
-
-    if (po.items && Array.isArray(po.items)) {
-      for (const item of po.items) {
-        if (item.product_id) {
-          const p = await this.rtdb(`products/${item.product_id}`);
-          if (p) {
-            const newQty = (parseFloat(p.stock_quantity) || 0) + parseFloat(item.quantity_ordered);
-            await this.rtdb(`products/${item.product_id}`, 'PATCH', {
-              stock_quantity: newQty,
-              cost_price: parseFloat(item.cost_price || p.cost_price)
-            });
-            const mId = Date.now().toString();
-            await this.rtdb(`stock_movements/${mId}`, 'PUT', {
-              product_id: item.product_id,
-              product_name: p.name,
-              movement_type: 'PO_RECEIVE',
-              quantity: item.quantity_ordered,
-              balance_after: newQty,
-              unit_cost: item.cost_price,
-              notes: `Received PO ${po.po_number}`,
-              created_at: new Date().toISOString()
-            });
-          }
-        }
-      }
-    }
-
-    await this.rtdb(`purchase_orders/${poId}`, 'PATCH', { status: 'RECEIVED', received_at: new Date().toISOString() });
-    return { success: true };
-  },
-
-  // Orders: POS, Invoices, Proformas
+  // -------------------------------------------------------------
+  // 6. ORDERS & POINT OF SALE (POS)
+  // -------------------------------------------------------------
   async getOrders(type) {
-    const raw = await this.rtdb('orders');
-    let orders = [];
-    if (raw) {
-      orders = Object.keys(raw).map(k => ({ id: k, ...raw[k] }));
+    const cached = this.getCache('orders') || {};
+    let orders = Object.keys(cached).map(k => ({ id: k, ...cached[k] }));
+
+    if (navigator.onLine) {
+      this.rawFetch('orders', 'GET', null, 3000).then(raw => {
+        if (raw) this.setCache('orders', raw);
+      }).catch(() => {});
     }
-    if (type) orders = orders.filter(o => o.order_type === type);
+
+    if (type) {
+      orders = orders.filter(o => o.order_type === type);
+    }
     orders.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
     return { success: true, orders };
   },
 
   async getOrder(id) {
-    const order = await this.rtdb(`orders/${id}`);
-    if (!order) throw new Error('Order not found');
-    return { success: true, order: { id, ...order } };
+    const cached = this.getCache('orders') || {};
+    const order = cached[id] || Object.values(cached).find(o => String(o.id) === String(id) || o.order_number === id);
+    if (order) return { success: true, order };
+    return { success: false, error: 'Order not found' };
   },
 
   async createOrder(data) {
-    const prefix = data.order_type === 'POS' ? 'JK-POS' : (data.order_type === 'PROFORMA' ? 'JK-PRO' : 'JK-INV');
-    const orderNum = `${prefix}-${Date.now().toString().slice(-6)}`;
     const id = Date.now().toString();
+    const prefix = data.order_type === 'PROFORMA' ? 'PRF' : (data.order_type === 'INVOICE' ? 'INV' : 'ORD');
+    const orderNumber = `${prefix}-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${id.slice(-4)}`;
 
-    const total = parseFloat(data.total || 0);
-    const amountPaid = parseFloat(data.amount_paid || 0);
-    let payStatus = 'PAID';
-    let balanceDue = 0;
-
-    if (data.order_type === 'PROFORMA') {
-      payStatus = 'UNPAID';
-      balanceDue = total;
-    } else if (amountPaid >= total) {
-      payStatus = 'PAID';
-      balanceDue = 0;
-    } else if (amountPaid > 0) {
-      payStatus = 'PARTIAL';
-      balanceDue = total - amountPaid;
-    } else {
-      payStatus = 'UNPAID';
-      balanceDue = total;
-    }
-
-    const orderData = {
+    const order = {
       id,
-      order_number: orderNum,
-      ...data,
-      total,
-      amount_paid: amountPaid,
-      balance_due: balanceDue,
-      payment_status: payStatus,
+      order_number: orderNumber,
+      order_type: data.order_type || 'POS',
+      customer_id: data.customer_id || null,
+      customer_name: data.customer_name || 'Walk-in Customer',
+      customer_phone: data.customer_phone || '',
+      cashier_id: data.cashier_id || null,
+      cashier_name: data.cashier_name || 'Staff',
+      subtotal: parseFloat(data.subtotal || 0),
+      discount: parseFloat(data.discount || 0),
+      tax: parseFloat(data.tax || 0),
+      total: parseFloat(data.total || 0),
+      amount_paid: parseFloat(data.amount_paid || data.total || 0),
+      balance_due: parseFloat(data.balance_due || 0),
+      payment_method: data.payment_method || 'CASH',
+      payment_status: data.payment_status || (data.balance_due > 0 ? 'PARTIAL' : 'PAID'),
+      items: data.items || [],
       created_at: new Date().toISOString()
     };
 
-    await this.rtdb(`orders/${id}`, 'PUT', orderData);
+    // 1. Save order into local cache
+    const currentOrders = this.getCache('orders') || {};
+    currentOrders[id] = order;
+    this.setCache('orders', currentOrders);
 
-    // Deduct stock if not Proforma
-    if (data.order_type !== 'PROFORMA' && data.items) {
-      for (const item of data.items) {
-        if (item.product_id) {
-          const p = await this.rtdb(`products/${item.product_id}`);
-          if (p) {
-            const newQty = Math.max(0, (parseFloat(p.stock_quantity) || 0) - parseFloat(item.quantity));
-            await this.rtdb(`products/${item.product_id}`, 'PATCH', { stock_quantity: newQty });
-            const mId = Date.now().toString();
-            await this.rtdb(`stock_movements/${mId}`, 'PUT', {
-              product_id: item.product_id,
-              product_name: p.name,
-              movement_type: 'SALE',
-              quantity: -item.quantity,
-              balance_after: newQty,
-              unit_cost: p.cost_price,
-              notes: `Sale Order ${orderNum}`,
-              created_at: new Date().toISOString()
-            });
-          }
-        }
-      }
+    // 2. Decrement stock quantities locally (POS & Invoices)
+    if (order.order_type !== 'PROFORMA' && order.items.length > 0) {
+      const currentProds = this.getCache('products') || {};
+      const currentMovs = this.getCache('stock_movements') || {};
+      const patchProds = {};
 
-      if (balanceDue > 0 && data.customer_id) {
-        const c = await this.rtdb(`customers/${data.customer_id}`);
-        if (c) {
-          await this.rtdb(`customers/${data.customer_id}`, 'PATCH', {
-            current_credit: (parseFloat(c.current_credit) || 0) + balanceDue
-          });
-        }
-      }
+      order.items.forEach(it => {
+        if (it.product_id && currentProds[it.product_id]) {
+          const p = currentProds[it.product_id];
+          const newStock = Math.max(0, (p.stock_quantity || 0) - it.quantity);
+          p.stock_quantity = newStock;
+          currentProds[it.product_id] = p;
+          patchProds[it.product_id] = { stock_quantity: newStock };
 
-      if (amountPaid > 0) {
-        const field = data.payment_method === 'BANK' ? 'bank_balance' : (data.payment_method === 'CASH' ? 'cash_balance' : 'mobile_money_balance');
-        const s = await this.rtdb('settings');
-        if (s) {
-          const cur = parseFloat(s[field] || 0);
-          await this.rtdb('settings', 'PATCH', { [field]: cur + amountPaid });
+          // Log movement
+          const mId = `${id}_${it.product_id}`;
+          currentMovs[mId] = {
+            id: mId,
+            product_id: it.product_id,
+            product_name: it.product_name,
+            movement_type: 'SALE',
+            quantity: -it.quantity,
+            balance_after: newStock,
+            unit_cost: p.cost_price,
+            reference_id: order.order_number,
+            notes: `Sale Order ${order.order_number}`,
+            created_at: new Date().toISOString()
+          };
         }
+      });
+      this.setCache('products', currentProds);
+      this.setCache('stock_movements', currentMovs);
+
+      // Push product updates in background
+      Object.keys(patchProds).forEach(pid => {
+        this.rtdb(`products/${pid}`, 'PATCH', patchProds[pid]).catch(() => {});
+      });
+    }
+
+    // 3. Update customer debt if credit order
+    if (order.balance_due > 0 && order.customer_id) {
+      const currentCusts = this.getCache('customers') || {};
+      if (currentCusts[order.customer_id]) {
+        const c = currentCusts[order.customer_id];
+        c.current_credit = (parseFloat(c.current_credit) || 0) + order.balance_due;
+        currentCusts[order.customer_id] = c;
+        this.setCache('customers', currentCusts);
+        this.rtdb(`customers/${order.customer_id}`, 'PATCH', { current_credit: c.current_credit }).catch(() => {});
       }
     }
+
+    // 4. Update cash balance in settings
+    if (order.amount_paid > 0 && order.order_type !== 'PROFORMA') {
+      const settings = this.getCache('settings') || {};
+      settings.cash_balance = (parseFloat(settings.cash_balance) || 0) + order.amount_paid;
+      this.setCache('settings', settings);
+      this.rtdb('settings', 'PATCH', { cash_balance: settings.cash_balance }).catch(() => {});
+    }
+
+    // Push order to RTDB / queue
+    await this.rtdb(`orders/${id}`, 'PUT', order);
 
     return {
       success: true,
       order_id: id,
-      order_number: orderNum,
-      total,
-      balance_due: balanceDue,
-      payment_status: payStatus
+      order_number: order.order_number,
+      order,
+      offline: !this.isOnline
     };
   },
 
   async convertProforma(id, targetType, userId) {
-    const pro = await this.rtdb(`orders/${id}`);
-    if (!pro) throw new Error('Proforma not found');
-    return await this.createOrder({
-      ...pro,
-      order_type: targetType,
-      amount_paid: 0,
-      notes: `Converted from Proforma ${pro.order_number}`
+    const orders = this.getCache('orders') || {};
+    const proforma = orders[id];
+    if (!proforma) throw new Error('Proforma invoice not found');
+
+    const res = await this.createOrder({
+      ...proforma,
+      order_type: targetType || 'INVOICE',
+      cashier_id: userId
     });
+    return res;
   },
 
-  // Delivery Notes
+  // -------------------------------------------------------------
+  // 7. DELIVERY NOTES
+  // -------------------------------------------------------------
   async getDeliveryNotes() {
-    const raw = await this.rtdb('delivery_notes');
-    let dns = [];
-    if (raw) {
-      dns = Object.keys(raw).map(k => ({ id: k, ...raw[k] }));
-    }
+    const cached = this.getCache('delivery_notes') || {};
+    let dns = Object.keys(cached).map(k => ({ id: k, ...cached[k] }));
     dns.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
     return { success: true, delivery_notes: dns };
   },
 
   async createDeliveryNote(data) {
     const id = Date.now().toString();
-    const dnNum = `JK-DN-${Date.now().toString().slice(-6)}`;
-    const dn = { id, delivery_number: dnNum, ...data, created_at: new Date().toISOString() };
+    const dnNumber = `DN-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${id.slice(-4)}`;
+    const dn = {
+      id,
+      delivery_number: dnNumber,
+      ...data,
+      created_at: new Date().toISOString()
+    };
+    const current = this.getCache('delivery_notes') || {};
+    current[id] = dn;
+    this.setCache('delivery_notes', current);
+
     await this.rtdb(`delivery_notes/${id}`, 'PUT', dn);
-    return { success: true, id, delivery_number: dnNum };
+    return { success: true, delivery_number: dnNumber, delivery_note: dn };
   },
 
-  // Expenses
+  // -------------------------------------------------------------
+  // 8. EXPENSES
+  // -------------------------------------------------------------
   async getExpenses(date) {
-    const raw = await this.rtdb('expenses');
-    let expenses = [];
-    if (raw) {
-      expenses = Object.keys(raw).map(k => ({ id: k, ...raw[k] }));
+    const targetDate = date || new Date().toISOString().split('T')[0];
+    const cached = this.getCache('expenses') || {};
+    let expenses = Object.keys(cached).map(k => ({ id: k, ...cached[k] }));
+
+    if (navigator.onLine) {
+      this.rawFetch('expenses', 'GET', null, 3000).then(raw => {
+        if (raw) this.setCache('expenses', raw);
+      }).catch(() => {});
     }
-    if (date) expenses = expenses.filter(e => e.expense_date === date);
-    expenses.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-    return { success: true, expenses };
+
+    const filtered = expenses.filter(e => (e.expense_date || '').startsWith(targetDate) || (e.created_at || '').startsWith(targetDate));
+    return { success: true, expenses: filtered };
   },
 
   async createExpense(data) {
     const id = Date.now().toString();
-    const expNum = `JK-EXP-${Date.now().toString().slice(-6)}`;
     const exp = {
       id,
-      expense_number: expNum,
+      voucher_number: `EXP-${id.slice(-6)}`,
       ...data,
       amount: parseFloat(data.amount || 0),
+      expense_date: data.expense_date || new Date().toISOString().split('T')[0],
       created_at: new Date().toISOString()
     };
+
+    const current = this.getCache('expenses') || {};
+    current[id] = exp;
+    this.setCache('expenses', current);
+
+    // Deduct cash from settings
+    const settings = this.getCache('settings') || {};
+    settings.cash_balance = Math.max(0, (parseFloat(settings.cash_balance) || 0) - exp.amount);
+    this.setCache('settings', settings);
+
     await this.rtdb(`expenses/${id}`, 'PUT', exp);
+    await this.rtdb('settings', 'PATCH', { cash_balance: settings.cash_balance });
 
-    const field = data.payment_method === 'BANK' ? 'bank_balance' : (data.payment_method === 'CASH' ? 'cash_balance' : 'mobile_money_balance');
-    const s = await this.rtdb('settings');
-    if (s) {
-      const cur = parseFloat(s[field] || 0);
-      await this.rtdb('settings', 'PATCH', { [field]: cur - parseFloat(data.amount) });
-    }
-
-    return { success: true, id, expense_number: expNum };
+    return { success: true, id, expense: exp };
   },
 
   async deleteExpense(id) {
+    const current = this.getCache('expenses') || {};
+    delete current[id];
+    this.setCache('expenses', current);
     await this.rtdb(`expenses/${id}`, 'DELETE');
     return { success: true };
   },
 
-  // Capital & Dashboards
-  async getCapital() {
-    const sRes = await this.getSettings();
-    const s = sRes.settings || {};
-    const cash = parseFloat(s.cash_balance || 0);
-    const bank = parseFloat(s.bank_balance || 0);
-    const mobile = parseFloat(s.mobile_money_balance || 0);
+  // -------------------------------------------------------------
+  // 9. SUPPLIERS & PURCHASE ORDERS
+  // -------------------------------------------------------------
+  async getSuppliers() {
+    const cached = this.getCache('suppliers') || {};
+    let suppliers = Object.keys(cached).map(k => ({ id: k, ...cached[k] }));
+    return { success: true, suppliers };
+  },
 
-    const pRes = await this.getProducts();
-    const prods = pRes.products || [];
-    const stockCost = prods.reduce((sum, p) => sum + ((parseFloat(p.cost_price) || 0) * (parseFloat(p.stock_quantity) || 0)), 0);
-    const stockRetail = prods.reduce((sum, p) => sum + ((parseFloat(p.selling_price) || 0) * (parseFloat(p.stock_quantity) || 0)), 0);
+  async addSupplier(data) {
+    const id = Date.now().toString();
+    const supp = { id, ...data, created_at: new Date().toISOString() };
+    const current = this.getCache('suppliers') || {};
+    current[id] = supp;
+    this.setCache('suppliers', current);
+    await this.rtdb(`suppliers/${id}`, 'PUT', supp);
+    return { success: true, id };
+  },
 
-    const cRes = await this.getCustomers();
-    const debtors = (cRes.customers || []).reduce((sum, c) => sum + (parseFloat(c.current_credit) || 0), 0);
+  async getPurchaseOrders() {
+    const cached = this.getCache('purchase_orders') || {};
+    let pos = Object.keys(cached).map(k => ({ id: k, ...cached[k] }));
+    pos.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    return { success: true, purchase_orders: pos };
+  },
 
-    const totalLiquid = cash + bank + mobile;
-    const netCapital = totalLiquid + stockCost + debtors;
+  async createPurchaseOrder(data) {
+    const id = Date.now().toString();
+    const poNumber = `PO-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${id.slice(-4)}`;
+    const po = {
+      id,
+      po_number: poNumber,
+      status: 'PENDING',
+      ...data,
+      total_amount: parseFloat(data.total_amount || 0),
+      created_at: new Date().toISOString()
+    };
+    const current = this.getCache('purchase_orders') || {};
+    current[id] = po;
+    this.setCache('purchase_orders', current);
+    await this.rtdb(`purchase_orders/${id}`, 'PUT', po);
+    return { success: true, po_number: poNumber, purchase_order: po };
+  },
 
-    const rawLedger = await this.rtdb('capital_ledger');
-    let ledger = [];
-    if (rawLedger) {
-      ledger = Object.keys(rawLedger).map(k => ({ id: k, ...rawLedger[k] }));
+  async receivePurchaseOrder(poId, userId) {
+    const current = this.getCache('purchase_orders') || {};
+    const po = current[poId];
+    if (!po) throw new Error('Purchase order not found');
+
+    po.status = 'RECEIVED';
+    po.received_at = new Date().toISOString();
+    po.received_by = userId;
+    current[poId] = po;
+    this.setCache('purchase_orders', current);
+
+    // Increase product stock
+    if (po.items && po.items.length > 0) {
+      const prods = this.getCache('products') || {};
+      po.items.forEach(it => {
+        if (it.product_id && prods[it.product_id]) {
+          prods[it.product_id].stock_quantity += parseFloat(it.quantity_ordered || it.quantity || 0);
+          if (it.cost_price > 0) prods[it.product_id].cost_price = it.cost_price;
+        }
+      });
+      this.setCache('products', prods);
     }
+
+    await this.rtdb(`purchase_orders/${poId}`, 'PATCH', { status: 'RECEIVED', received_at: po.received_at });
+    return { success: true };
+  },
+
+  // -------------------------------------------------------------
+  // 10. CAPITAL & FINANCIAL METRICS (INSTANT ZERO-LATENCY ENGINE)
+  // -------------------------------------------------------------
+  async getCapital() {
+    const settings = this.getCache('settings') || {};
+    const prodsObj = this.getCache('products') || {};
+    const products = Object.values(prodsObj);
+    const custsObj = this.getCache('customers') || {};
+    const customers = Object.values(custsObj);
+
+    let stock_cost_val = 0;
+    let stock_retail_val = 0;
+    products.forEach(p => {
+      const q = parseFloat(p.stock_quantity || 0);
+      stock_cost_val += q * parseFloat(p.cost_price || 0);
+      stock_retail_val += q * parseFloat(p.selling_price || 0);
+    });
+
+    let debtors_total = 0;
+    customers.forEach(c => {
+      debtors_total += parseFloat(c.current_credit || 0);
+    });
+
+    const cash = parseFloat(settings.cash_balance || 0);
+    const bank = parseFloat(settings.bank_balance || 0);
+    const mobile = parseFloat(settings.mobile_money_balance || 0);
+    const total_liquid = cash + bank + mobile;
+    const net_capital = total_liquid + stock_cost_val + debtors_total;
 
     return {
       success: true,
       capital: {
-        cash, bank, mobile_money: mobile,
-        total_liquid: totalLiquid,
-        stock_cost_valuation: stockCost,
-        stock_retail_valuation: stockRetail,
-        debtors_total: debtors,
-        total_estimated_net_capital: netCapital
-      },
-      ledger
+        cash_balance: cash,
+        bank_balance: bank,
+        mobile_money_balance: mobile,
+        total_liquid,
+        stock_cost_valuation: stock_cost_val,
+        stock_retail_valuation: stock_retail_val,
+        total_debtors: debtors_total,
+        total_creditors: 0.0,
+        net_capital
+      }
     };
   },
 
   async recordCapitalAdjustment(data) {
     const id = Date.now().toString();
-    await this.rtdb(`capital_ledger/${id}`, 'PUT', {
+    const entry = {
+      id,
       ...data,
-      amount: parseFloat(data.amount),
+      amount: parseFloat(data.amount || 0),
       created_at: new Date().toISOString()
-    });
+    };
 
-    const field = data.account === 'BANK' ? 'bank_balance' : (data.account === 'MOBILE_MONEY' ? 'mobile_money_balance' : 'cash_balance');
-    const s = await this.rtdb('settings');
-    if (s) {
-      const cur = parseFloat(s[field] || 0);
-      const mult = data.entry_type === 'OWNER_DRAWING' ? -1 : 1;
-      await this.rtdb('settings', 'PATCH', { [field]: cur + (mult * parseFloat(data.amount)) });
+    const settings = this.getCache('settings') || {};
+    if (data.type === 'INJECTION') {
+      settings.cash_balance = (parseFloat(settings.cash_balance) || 0) + entry.amount;
+    } else if (data.type === 'DRAWING') {
+      settings.cash_balance = Math.max(0, (parseFloat(settings.cash_balance) || 0) - entry.amount);
     }
+    this.setCache('settings', settings);
 
-    return { success: true };
+    const ledgers = this.getCache('capital_ledger') || {};
+    ledgers[id] = entry;
+    this.setCache('capital_ledger', ledgers);
+
+    await this.rtdb(`capital_ledger/${id}`, 'PUT', entry);
+    await this.rtdb('settings', 'PATCH', { cash_balance: settings.cash_balance });
+    return { success: true, id };
   },
 
+  // -------------------------------------------------------------
+  // 11. REPORTS (INSTANT RENDERING)
+  // -------------------------------------------------------------
   async getDashboardReport() {
     const today = new Date().toISOString().split('T')[0];
-    const [ordersRes, expRes, capRes, shiftsRes, prodsRes] = await Promise.all([
-      this.getOrders(),
-      this.getExpenses(today),
-      this.getCapital(),
-      this.getShifts(today),
-      this.getProducts()
-    ]);
+    const ordersObj = this.getCache('orders') || {};
+    const allOrders = Object.values(ordersObj);
+    const todayOrders = allOrders.filter(o => o.order_type !== 'PROFORMA' && (o.created_at || '').startsWith(today));
 
-    const todayOrders = (ordersRes.orders || []).filter(o => o.created_at?.startsWith(today) && o.order_type !== 'PROFORMA');
-    const todaySales = todayOrders.reduce((sum, o) => sum + (parseFloat(o.total) || 0), 0);
-    const todayExp = (expRes.expenses || []).reduce((sum, e) => sum + (parseFloat(e.amount) || 0), 0);
-    const lowStock = (prodsRes.products || []).filter(p => parseFloat(p.stock_quantity || 0) <= parseFloat(p.min_alert_quantity || 5)).length;
+    let todaySales = 0;
+    todayOrders.forEach(o => { todaySales += parseFloat(o.total || 0); });
+
+    const expensesObj = this.getCache('expenses') || {};
+    const allExpenses = Object.values(expensesObj);
+    const todayExpenses = allExpenses.filter(e => (e.expense_date || '').startsWith(today) || (e.created_at || '').startsWith(today));
+
+    let todayExpTotal = 0;
+    todayExpenses.forEach(e => { todayExpTotal += parseFloat(e.amount || 0); });
+
+    const capRes = await this.getCapital();
+    const prodsObj = this.getCache('products') || {};
+    const lowStock = Object.values(prodsObj).filter(p => p.stock_quantity <= p.min_alert_quantity).length;
 
     return {
       success: true,
-      dashboard: {
-        today_sales: todaySales,
-        today_orders_count: todayOrders.length,
-        today_expenses: todayExp,
-        net_today: todaySales - todayExp,
-        active_workers_count: (shiftsRes.shifts || []).filter(s => !s.clock_out).length,
-        low_stock_count: lowStock,
-        debtors_total: capRes.capital.debtors_total,
-        capital_available: capRes.capital.total_liquid,
-        cash_in_hand: capRes.capital.cash,
-        bank_balance: capRes.capital.bank,
-        mobile_balance: capRes.capital.mobile_money
-      }
+      today_sales: todaySales,
+      today_expenses: todayExpTotal,
+      today_net: todaySales - todayExpTotal,
+      total_debtors: capRes.capital.total_debtors,
+      total_stock_value: capRes.capital.stock_cost_valuation,
+      cash_in_hand: capRes.capital.cash_balance,
+      low_stock_count: lowStock,
+      recent_orders: allOrders.slice(0, 10)
     };
   },
 
   async getDailyReport(date, workerId) {
     const targetDate = date || new Date().toISOString().split('T')[0];
-    const [oRes, eRes, sRes] = await Promise.all([
-      this.getOrders(),
-      this.getExpenses(targetDate),
-      this.getShifts(targetDate)
-    ]);
-
-    let dayOrders = (oRes.orders || []).filter(o => o.created_at?.startsWith(targetDate));
-    let dayExpenses = eRes.expenses || [];
+    const ordersObj = this.getCache('orders') || {};
+    let orders = Object.values(ordersObj).filter(o => o.order_type !== 'PROFORMA' && (o.created_at || '').startsWith(targetDate));
 
     if (workerId) {
-      dayOrders = dayOrders.filter(o => o.user_id == workerId);
-      dayExpenses = dayExpenses.filter(e => e.user_id == workerId);
+      orders = orders.filter(o => String(o.cashier_id) === String(workerId));
     }
 
-    const totalSales = dayOrders.filter(o => o.order_type !== 'PROFORMA').reduce((sum, o) => sum + (parseFloat(o.total) || 0), 0);
-    const totalExp = dayExpenses.reduce((sum, e) => sum + (parseFloat(e.amount) || 0), 0);
+    let totalSales = 0;
+    orders.forEach(o => { totalSales += parseFloat(o.total || 0); });
+
+    const expensesObj = this.getCache('expenses') || {};
+    const expenses = Object.values(expensesObj).filter(e => (e.expense_date || '').startsWith(targetDate) || (e.created_at || '').startsWith(targetDate));
+
+    let totalExp = 0;
+    expenses.forEach(e => { totalExp += parseFloat(e.amount || 0); });
 
     return {
       success: true,
@@ -719,9 +1107,8 @@ const FirebaseAdapter = {
       total_sales: totalSales,
       total_expenses: totalExp,
       net_profit: totalSales - totalExp,
-      orders: dayOrders,
-      expenses: dayExpenses,
-      shifts: sRes.shifts || []
+      orders,
+      expenses
     };
   }
 };

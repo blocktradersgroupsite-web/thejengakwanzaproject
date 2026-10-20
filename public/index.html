@@ -6,6 +6,12 @@
   <title>JENGAKWANZA - Business Management System</title>
   <link rel="stylesheet" href="css/style.css">
   <link rel="icon" type="image/jpeg" href="assets/logo.jpg">
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#0d9488">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="JENGAKWANZA">
+  <link rel="apple-touch-icon" href="assets/logo.jpg">
 </head>
 <body>
 
@@ -184,6 +190,11 @@
         </div>
 
         <div class="header-actions">
+          <div id="connection-status-pill" class="connection-status-pill online" title="Click to sync data with cloud" onclick="App.triggerManualSync()">
+            <span class="status-dot active" id="connection-dot"></span>
+            <span id="connection-text">Cloud Synced</span>
+          </div>
+
           <div class="shift-status-pill">
             <span class="status-dot inactive" id="header-shift-dot"></span>
             <span id="header-shift-text">Checking Shift...</span>
