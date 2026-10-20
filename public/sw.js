@@ -1,6 +1,6 @@
 // JENGAKWANZA Progressive Web App Service Worker
 // Ultra-fast Offline Support + Instant Asset Updates
-const CACHE_NAME = 'jengakwanza-cache-v4';
+const CACHE_NAME = 'jengakwanza-cache-v5';
 const PRECACHE_ASSETS = [
   './',
   'index.html',

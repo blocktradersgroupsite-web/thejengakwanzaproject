@@ -1,9 +1,17 @@
 {
-  "cleanUrls": true,
+  "cleanUrls": false,
   "rewrites": [
+    { "source": "/public/css/(.*)", "destination": "/public/css/$1" },
+    { "source": "/public/js/(.*)", "destination": "/public/js/$1" },
+    { "source": "/public/assets/(.*)", "destination": "/public/assets/$1" },
+    { "source": "/public/sw.js", "destination": "/public/sw.js" },
+    { "source": "/public/manifest.json", "destination": "/public/manifest.json" },
+    { "source": "/public/index.html", "destination": "/public/index.html" },
     { "source": "/css/(.*)", "destination": "/public/css/$1" },
     { "source": "/js/(.*)", "destination": "/public/js/$1" },
     { "source": "/assets/(.*)", "destination": "/public/assets/$1" },
+    { "source": "/sw.js", "destination": "/public/sw.js" },
+    { "source": "/manifest.json", "destination": "/public/manifest.json" },
     { "source": "/(.*)", "destination": "/public/index.html" }
   ],
   "headers": [
