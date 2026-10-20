@@ -50,45 +50,49 @@ const FirebaseAdapter = {
 
   async ensureInitialSetup() {
     if (!this.db) return;
-    const { doc, getDoc, setDoc } = this.firestoreOps;
+    try {
+      const { doc, getDoc, setDoc } = this.firestoreOps;
 
-    // 1. Settings Document
-    const settingsRef = doc(this.db, "settings", "general");
-    const settingsSnap = await getDoc(settingsRef);
-    if (!settingsSnap.exists()) {
-      await setDoc(settingsRef, {
-        company_name: 'JENGAKWANZA LIMITED',
-        tagline: 'Building Excellence & Quality Supplies',
-        phone_numbers: '0788989889 / 0713550104',
-        address: 'P.O.BOX 14991 ARUSHA',
-        email: 'jengakwanzaltd@gmail.com',
-        currency: 'TZS',
-        currency_symbol: 'TSh',
-        tax_rate: '0',
-        receipt_footer: 'Thank you for choosing JENGAKWANZA LIMITED! Quality Guarantee.',
-        cash_balance: 0.0,
-        bank_balance: 0.0,
-        mobile_money_balance: 0.0,
-        updated_at: new Date().toISOString()
-      });
-      console.log('✓ Initialized JENGAKWANZA Firestore company credentials');
-    }
+      // 1. Settings Document
+      const settingsRef = doc(this.db, "settings", "general");
+      const settingsSnap = await getDoc(settingsRef);
+      if (!settingsSnap.exists()) {
+        await setDoc(settingsRef, {
+          company_name: 'JENGAKWANZA LIMITED',
+          tagline: 'Building Excellence & Quality Supplies',
+          phone_numbers: '0788989889 / 0713550104',
+          address: 'P.O.BOX 14991 ARUSHA',
+          email: 'jengakwanzaltd@gmail.com',
+          currency: 'TZS',
+          currency_symbol: 'TSh',
+          tax_rate: '0',
+          receipt_footer: 'Thank you for choosing JENGAKWANZA LIMITED! Quality Guarantee.',
+          cash_balance: 0.0,
+          bank_balance: 0.0,
+          mobile_money_balance: 0.0,
+          updated_at: new Date().toISOString()
+        });
+        console.log('✓ Initialized JENGAKWANZA Firestore company credentials');
+      }
 
-    // 2. Default Admin User if no users exist
-    const adminRef = doc(this.db, "users", "admin");
-    const adminSnap = await getDoc(adminRef);
-    if (!adminSnap.exists()) {
-      await setDoc(adminRef, {
-        id: "admin",
-        username: "admin",
-        full_name: "System Administrator",
-        role: "Admin",
-        phone: "0788989889",
-        pin_hash: "admin123",
-        active: 1,
-        created_at: new Date().toISOString()
-      });
-      console.log('✓ Initialized default Admin user in Firestore: admin | admin123');
+      // 2. Default Admin User if no users exist
+      const adminRef = doc(this.db, "users", "admin");
+      const adminSnap = await getDoc(adminRef);
+      if (!adminSnap.exists()) {
+        await setDoc(adminRef, {
+          id: "admin",
+          username: "admin",
+          full_name: "System Administrator",
+          role: "Admin",
+          phone: "0788989889",
+          pin_hash: "admin123",
+          active: 1,
+          created_at: new Date().toISOString()
+        });
+        console.log('✓ Initialized default Admin user in Firestore: admin | admin123');
+      }
+    } catch (e) {
+      console.warn('Initial Firestore setup notice:', e);
     }
   },
 
