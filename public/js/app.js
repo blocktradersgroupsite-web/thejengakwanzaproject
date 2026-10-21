@@ -529,14 +529,14 @@ const App = {
 
       container.innerHTML = `
         <!-- Active Branch Context Indicator -->
-        <div style="display: flex; justify-content: space-between; align-items: center; background: #ffffff; border: 1px solid var(--border); border-left: 4px solid var(--primary); padding: 12px 18px; border-radius: 8px; margin-bottom: 20px;">
+        <div class="branch-context-card">
           <div>
             <div style="font-size: 11px; text-transform: uppercase; color: var(--text-muted); font-weight: 700; letter-spacing: 0.5px;">ACTIVE SHOP VIEW</div>
             <div style="font-size: 16px; font-weight: 800; color: var(--text-main); margin-top: 2px;">
               🏪 ${this.escape(activeBranchName)}
             </div>
           </div>
-          <div style="display: flex; gap: 8px; align-items: center;">
+          <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
             <span class="badge ${State.currentBranch === 'all' ? 'badge-neutral' : 'badge-success'}">
               ${State.currentBranch === 'all' ? 'All Shops Combined' : 'Isolated Branch Numbers'}
             </span>
@@ -548,113 +548,162 @@ const App = {
         <div class="metrics-grid">
           ${State.isAdmin() ? `
             <div class="metric-card">
-              <div class="metric-data">
-                <h4>Total Business Capital</h4>
-                <div class="metric-value" style="color: var(--primary);">${State.formatMoney(d.total_capital || d.net_capital || ((parseFloat(d.stock_value) || 0) + (parseFloat(d.capital_available) || 0)))}</div>
-                <div class="metric-sub">Stock Value: ${State.formatMoney(d.stock_value || 0)} • Liquid: ${State.formatMoney(d.capital_available || 0)}</div>
+              <div class="metric-card-top">
+                <span class="metric-title">Total Capital</span>
+                <div class="metric-icon teal">
+                  <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+                </div>
               </div>
-              <div class="metric-icon teal">
-                <svg width="24" height="24" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+              <div class="metric-data">
+                <div class="metric-value" style="color: var(--primary);">${State.formatMoney(d.total_capital || d.net_capital || ((parseFloat(d.stock_value) || 0) + (parseFloat(d.capital_available) || 0)))}</div>
+                <div class="metric-sub">Stock: ${State.formatMoney(d.stock_value || 0)} • Liquid: ${State.formatMoney(d.capital_available || 0)}</div>
               </div>
             </div>
           ` : `
             <div class="metric-card">
-              <div class="metric-data">
-                <h4>My Shift Status</h4>
-                <div class="metric-value" style="color: var(--primary); font-size: 20px;">${State.activeShift ? 'Clocked In (Active)' : 'Not Clocked In'}</div>
-                <div class="metric-sub">${State.currentUser?.role || 'Staff'} • ${State.getCurrentBranchName()}</div>
+              <div class="metric-card-top">
+                <span class="metric-title">Shift Status</span>
+                <div class="metric-icon teal">
+                  <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path></svg>
+                </div>
               </div>
-              <div class="metric-icon teal">
-                <svg width="24" height="24" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path></svg>
+              <div class="metric-data">
+                <div class="metric-value" style="color: var(--primary); font-size: 18px;">${State.activeShift ? 'Clocked In' : 'Not Clocked In'}</div>
+                <div class="metric-sub">${State.currentUser?.role || 'Staff'} • ${State.getCurrentBranchName()}</div>
               </div>
             </div>
           `}
 
           <div class="metric-card">
-            <div class="metric-data">
-              <h4>Today's Sales</h4>
-              <div class="metric-value" style="color: var(--success);">${State.formatMoney(d.today_sales)}</div>
-              <div class="metric-sub">${d.today_orders_count || 0} completed transactions today</div>
+            <div class="metric-card-top">
+              <span class="metric-title">Today's Sales</span>
+              <div class="metric-icon green">
+                <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z"></path></svg>
+              </div>
             </div>
-            <div class="metric-icon green">
-              <svg width="24" height="24" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z"></path></svg>
+            <div class="metric-data">
+              <div class="metric-value" style="color: var(--success);">${State.formatMoney(d.today_sales)}</div>
+              <div class="metric-sub">${d.today_orders_count || 0} completed orders today</div>
             </div>
           </div>
 
           <div class="metric-card">
+            <div class="metric-card-top">
+              <span class="metric-title">Today's Expenses</span>
+              <div class="metric-icon red">
+                <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+              </div>
+            </div>
             <div class="metric-data">
-              <h4>Today's Expenses</h4>
               <div class="metric-value" style="color: var(--danger);">${State.formatMoney(d.today_expenses)}</div>
               <div class="metric-sub">Net Today: ${State.formatMoney(d.net_today)}</div>
             </div>
-            <div class="metric-icon red">
-              <svg width="24" height="24" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-            </div>
           </div>
 
           <div class="metric-card">
+            <div class="metric-card-top">
+              <span class="metric-title">Debtors Due</span>
+              <div class="metric-icon amber">
+                <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 14l6-6m-5.5.5h.01m4.99 5h.01M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16l3.5-2 3.5 2 3.5-2 3.5 2zM10 8.5a.5.5 0 11-1 0 .5.5 0 011 0zm5 5a.5.5 0 11-1 0 .5.5 0 011 0z"></path></svg>
+              </div>
+            </div>
             <div class="metric-data">
-              <h4>Uncollected Debtors</h4>
               <div class="metric-value" style="color: #b45309;">${State.formatMoney(d.debtors_total)}</div>
               <div class="metric-sub">Accounts Receivable</div>
             </div>
-            <div class="metric-icon amber">
-              <svg width="24" height="24" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 14l6-6m-5.5.5h.01m4.99 5h.01M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16l3.5-2 3.5 2 3.5-2 3.5 2zM10 8.5a.5.5 0 11-1 0 .5.5 0 011 0zm5 5a.5.5 0 11-1 0 .5.5 0 011 0z"></path></svg>
+          </div>
+
+          <div class="metric-card">
+            <div class="metric-card-top">
+              <span class="metric-title">Staff On Duty</span>
+              <div class="metric-icon blue">
+                <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>
+              </div>
+            </div>
+            <div class="metric-data">
+              <div class="metric-value" style="color: var(--secondary);">${d.active_workers_count} Active</div>
+              <div class="metric-sub"><a href="javascript:void(0)" onclick="App.navigate('workers')" style="color: var(--secondary); text-decoration: underline;">View shifts roster</a></div>
             </div>
           </div>
 
           <div class="metric-card">
-            <div class="metric-data">
-              <h4>Active Workers Today</h4>
-              <div class="metric-value" style="color: var(--secondary);">${d.active_workers_count} On Duty</div>
-              <div class="metric-sub"><a href="javascript:void(0)" onclick="App.navigate('workers')" style="color: var(--secondary); text-decoration: underline;">View shift roster</a></div>
+            <div class="metric-card-top">
+              <span class="metric-title">Stock Alerts</span>
+              <div class="metric-icon purple">
+                <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"></path></svg>
+              </div>
             </div>
-            <div class="metric-icon blue">
-              <svg width="24" height="24" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>
-            </div>
-          </div>
-
-          <div class="metric-card">
             <div class="metric-data">
-              <h4>Stock Alerts</h4>
               <div class="metric-value" style="color: ${d.low_stock_count > 0 ? 'var(--danger)' : '#475569'};">${d.low_stock_count} Low Items</div>
-              <div class="metric-sub"><a href="javascript:void(0)" onclick="App.navigate('inventory')" style="color: var(--primary); text-decoration: underline;">Check inventory</a></div>
-            </div>
-            <div class="metric-icon purple">
-              <svg width="24" height="24" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"></path></svg>
+              <div class="metric-sub"><a href="javascript:void(0)" onclick="App.navigate('inventory')" style="color: var(--primary); text-decoration: underline;">Open inventory</a></div>
             </div>
           </div>
         </div>
 
-        <!-- Quick Launch Action Bar -->
-        <div class="card" style="margin-bottom: 24px; padding: 16px 20px;">
-          <div style="display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px;">
-            <div style="font-weight: 700; font-size: 15px; color: var(--text-main);">
-              Quick Business Actions
+        <!-- Quick Launch Action Icons Grid -->
+        <div class="quick-actions-card">
+          <div class="quick-actions-title">Quick Business Operations</div>
+          <div class="quick-actions-grid">
+            <div class="quick-action-item" onclick="App.navigate('pos')">
+              <div class="action-icon-circle bg-teal">
+                <svg width="22" height="22" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v1m6 11h2m-6 0h-2v4m0-11v3m0 0h.01M12 12h4.01M16 20h4M4 12h4m12 0h.01M5 8h2a1 1 0 001-1V5a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1zm12 0h2a1 1 0 001-1V5a1 1 0 00-1-1h-2a1 1 0 00-1 1v2a1 1 0 001 1zM5 20h2a1 1 0 001-1v-2a1 1 0 00-1-1H5a1 1 0 00-1 1v2a1 1 0 001 1z"></path></svg>
+              </div>
+              <span class="action-label">POS Sale</span>
             </div>
-            <div style="display: flex; gap: 10px; flex-wrap: wrap;">
-              <button class="btn btn-primary" onclick="App.navigate('pos')">
-                <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4v16m8-8H4"></path></svg>
-                New POS Sale
-              </button>
-              <button class="btn btn-secondary" onclick="App.navigate('invoices')">
-                New Invoice
-              </button>
-              <button class="btn btn-secondary" onclick="App.navigate('proforma')">
-                New Proforma
-              </button>
-              <button class="btn btn-secondary" onclick="App.navigate('delivery-notes')">
-                New Delivery Note
-              </button>
-              <button class="btn btn-secondary" onclick="App.navigate('expenses')">
-                Record Expense
-              </button>
+
+            <div class="quick-action-item" onclick="App.navigate('invoices')">
+              <div class="action-icon-circle bg-blue">
+                <svg width="22" height="22" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"></path></svg>
+              </div>
+              <span class="action-label">Invoices</span>
+            </div>
+
+            <div class="quick-action-item" onclick="App.navigate('inventory')">
+              <div class="action-icon-circle bg-emerald">
+                <svg width="22" height="22" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"></path></svg>
+              </div>
+              <span class="action-label">Stock</span>
+            </div>
+
+            <div class="quick-action-item" onclick="App.navigate('expenses')">
+              <div class="action-icon-circle bg-rose">
+                <svg width="22" height="22" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12H9m12 0a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+              </div>
+              <span class="action-label">Expenses</span>
+            </div>
+
+            <div class="quick-action-item" onclick="App.navigate('delivery-notes')">
+              <div class="action-icon-circle bg-amber">
+                <svg width="22" height="22" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16V6a1 1 0 00-1-1H4a1 1 0 00-1 1v10a1 1 0 001 1h1m8-1a1 1 0 01-1 1H9m4-1V8a1 1 0 011-1h2.586a1 1 0 01.707.293l3.414 3.414a1 1 0 01.293.707V16a1 1 0 01-1 1h-1m-6-1a1 1 0 001 1h1M5 17a2 2 0 104 0m-4 0a2 2 0 114 0m6 0a2 2 0 104 0m-4 0a2 2 0 114 0"></path></svg>
+              </div>
+              <span class="action-label">Delivery</span>
+            </div>
+
+            <div class="quick-action-item" onclick="App.navigate('proforma')">
+              <div class="action-icon-circle bg-indigo">
+                <svg width="22" height="22" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 21h10a2 2 0 002-2V9.414a1 1 0 00-.293-.707l-5.414-5.414A1 1 0 0012.586 3H7a2 2 0 00-2 2v14a2 2 0 002 2z"></path></svg>
+              </div>
+              <span class="action-label">Proforma</span>
+            </div>
+
+            <div class="quick-action-item" onclick="App.navigate('debtors')">
+              <div class="action-icon-circle bg-violet">
+                <svg width="22" height="22" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>
+              </div>
+              <span class="action-label">Debtors</span>
+            </div>
+
+            <div class="quick-action-item" onclick="App.navigate('reports')">
+              <div class="action-icon-circle bg-slate">
+                <svg width="22" height="22" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path></svg>
+              </div>
+              <span class="action-label">Reports</span>
             </div>
           </div>
         </div>
 
         <!-- Recent Transactions Grid -->
-        <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 20px;">
+        <div class="dashboard-split-grid">
           <div class="card">
             <div class="card-header">
               <h3 class="card-title">Recent Sales & Invoices</h3>
