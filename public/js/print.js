@@ -157,14 +157,14 @@ const Printer = {
 
     let itemsHtml = items.map((item, idx) => `
       <tr>
-        <td style="text-align: center; width: 40px;">${idx + 1}</td>
+        <td style="text-align: center; width: 36px;">${idx + 1}</td>
         <td>
-          <strong>${this.escape(item.product_name || item.name)}</strong>
+          <div class="doc-item-title">${this.escape(item.product_name || item.name)}</div>
         </td>
-        <td style="text-align: center; width: 80px;">${item.unit || 'pcs'}</td>
-        <td style="text-align: center; width: 70px; font-weight: bold;">${item.quantity}</td>
-        <td style="text-align: right; width: 110px;">${this.formatMoney(item.unit_price)}</td>
-        <td style="text-align: right; width: 120px; font-weight: bold;">${this.formatMoney(item.total_price || (item.quantity * item.unit_price))}</td>
+        <td style="text-align: center; width: 65px;">${item.unit || 'pcs'}</td>
+        <td style="text-align: center; width: 60px; font-weight: bold;">${item.quantity}</td>
+        <td style="text-align: right; width: 105px;">${this.formatMoney(item.unit_price)}</td>
+        <td style="text-align: right; width: 115px; font-weight: bold;">${this.formatMoney(item.total_price || (item.quantity * item.unit_price))}</td>
       </tr>
     `).join('');
 
@@ -185,7 +185,7 @@ const Printer = {
           </div>
           <div class="doc-type-badge">
             <h1>${docTitle}</h1>
-            <table class="doc-meta-table" style="margin-left: auto;">
+            <table class="doc-meta-table">
               <tr>
                 <td><strong>Doc Number:</strong></td>
                 <td><strong>${this.escape(order.order_number)}</strong></td>
@@ -210,14 +210,14 @@ const Printer = {
 
         <div class="doc-billing-grid">
           <div>
-            <h4 style="font-size: 11px; text-transform: uppercase; color: #64748b; margin-bottom: 6px;">BILL TO / CLIENT</h4>
-            <div style="font-size: 14px; font-weight: bold; color: #0f172a;">${this.escape(customer)}</div>
-            ${order.customer_phone ? `<div style="color: #475569; font-size: 12px;"><strong>Phone:</strong> ${this.escape(order.customer_phone)}</div>` : ''}
-            ${order.customer_address ? `<div style="color: #475569; font-size: 12px;"><strong>Address:</strong> ${this.escape(order.customer_address)}</div>` : ''}
+            <h4>BILL TO / CLIENT</h4>
+            <div class="doc-client-name">${this.escape(customer)}</div>
+            ${order.customer_phone ? `<div><strong>Phone:</strong> ${this.escape(order.customer_phone)}</div>` : ''}
+            ${order.customer_address ? `<div><strong>Address:</strong> ${this.escape(order.customer_address)}</div>` : ''}
           </div>
           <div style="text-align: right;">
-            <h4 style="font-size: 11px; text-transform: uppercase; color: #64748b; margin-bottom: 6px;">PAYMENT DETAILS</h4>
-            <div style="font-size: 12px; color: #334155;">
+            <h4>PAYMENT DETAILS</h4>
+            <div>
               <div><strong>Payment Method:</strong> ${this.escape(order.payment_method || 'CASH / BANK')}</div>
               <div><strong>Served By:</strong> ${this.escape(order.cashier_name || 'Accounts Desk')}</div>
             </div>
@@ -227,12 +227,12 @@ const Printer = {
         <table class="doc-table">
           <thead>
             <tr>
-              <th style="text-align: center;">#</th>
+              <th style="text-align: center; width: 36px;">#</th>
               <th>Description / Item Specification</th>
-              <th style="text-align: center;">Unit</th>
-              <th style="text-align: center;">Qty</th>
-              <th style="text-align: right;">Unit Price</th>
-              <th style="text-align: right;">Total Amount</th>
+              <th style="text-align: center; width: 65px;">Unit</th>
+              <th style="text-align: center; width: 60px;">Qty</th>
+              <th style="text-align: right; width: 105px;">Unit Price</th>
+              <th style="text-align: right; width: 115px;">Total Amount</th>
             </tr>
           </thead>
           <tbody>
@@ -242,44 +242,44 @@ const Printer = {
 
         <div class="doc-summary-split">
           <div>
-            <div style="background: #f8fafc; border: 1px solid #e2e8f0; padding: 12px; border-radius: 6px; font-size: 12px;">
+            <div class="doc-terms-box">
               <strong>Terms & Information:</strong>
-              <p style="margin-top: 4px; color: #475569;">
+              <p>
                 ${isProforma 
                   ? 'This Proforma Invoice is valid for 14 days from issue date. Stock and prices are subject to confirmation upon final purchase order.' 
                   : 'Official Tax Invoice from JENGAKWANZA LIMITED. Goods remain property of the company until fully paid for.'}
               </p>
-              ${order.notes ? `<p style="margin-top: 6px; color: #0f172a;"><strong>Notes:</strong> ${this.escape(order.notes)}</p>` : ''}
+              ${order.notes ? `<p style="margin-top: 4px; color: #0f172a;"><strong>Notes:</strong> ${this.escape(order.notes)}</p>` : ''}
             </div>
           </div>
           <div>
-            <div style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 6px; padding: 12px;">
-              <div style="display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 12.5px;">
+            <div class="doc-totals-box">
+              <div class="row">
                 <span>Subtotal:</span>
                 <span>${this.formatMoney(order.subtotal || order.total)}</span>
               </div>
               ${order.discount > 0 ? `
-                <div style="display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 12.5px; color: #dc2626;">
+                <div class="row" style="color: #dc2626;">
                   <span>Discount:</span>
                   <span>-${this.formatMoney(order.discount)}</span>
                 </div>
               ` : ''}
               ${order.tax > 0 ? `
-                <div style="display: flex; justify-content: space-between; margin-bottom: 6px; font-size: 12.5px;">
+                <div class="row">
                   <span>VAT / Tax:</span>
                   <span>${this.formatMoney(order.tax)}</span>
                 </div>
               ` : ''}
-              <div style="display: flex; justify-content: space-between; padding-top: 8px; border-top: 2px solid #0f172a; font-size: 15px; font-weight: bold;">
+              <div class="row grand-total">
                 <span>TOTAL:</span>
                 <span style="color: #0d9488;">${this.formatMoney(order.total)}</span>
               </div>
               ${!isProforma ? `
-                <div style="display: flex; justify-content: space-between; margin-top: 6px; font-size: 12.5px;">
+                <div class="row" style="margin-top: 3px;">
                   <span>Paid:</span>
                   <span>${this.formatMoney(order.amount_paid || 0)}</span>
                 </div>
-                <div style="display: flex; justify-content: space-between; margin-top: 4px; font-size: 13px; font-weight: bold; color: ${order.balance_due > 0 ? '#dc2626' : '#16a34a'};">
+                <div class="row" style="margin-top: 2px; font-weight: bold; color: ${order.balance_due > 0 ? '#dc2626' : '#16a34a'};">
                   <span>Balance Due:</span>
                   <span>${this.formatMoney(order.balance_due || 0)}</span>
                 </div>
@@ -313,16 +313,16 @@ const Printer = {
 
     let itemsHtml = items.length > 0 ? items.map((item, idx) => `
       <tr>
-        <td style="text-align: center; width: 40px;">${idx + 1}</td>
-        <td><strong>${this.escape(item.product_name || item.name)}</strong></td>
-        <td style="text-align: center; width: 80px;">${item.unit || 'pcs'}</td>
-        <td style="text-align: center; width: 80px; font-weight: bold;">${item.quantity}</td>
+        <td style="text-align: center; width: 36px;">${idx + 1}</td>
+        <td><div class="doc-item-title">${this.escape(item.product_name || item.name)}</div></td>
+        <td style="text-align: center; width: 65px;">${item.unit || 'pcs'}</td>
+        <td style="text-align: center; width: 65px; font-weight: bold;">${item.quantity}</td>
         <td>${this.escape(item.notes || 'Good Condition')}</td>
       </tr>
     `).join('') : `
       <tr>
         <td style="text-align: center;">1</td>
-        <td><strong>As specified in reference order ${this.escape(dn.order_number || '')}</strong></td>
+        <td><div class="doc-item-title">As specified in reference order ${this.escape(dn.order_number || '')}</div></td>
         <td style="text-align: center;">Lot</td>
         <td style="text-align: center; font-weight: bold;">1</td>
         <td>Delivered intact</td>
@@ -346,7 +346,7 @@ const Printer = {
           </div>
           <div class="doc-type-badge">
             <h1 style="color: #0284c7;">DELIVERY NOTE</h1>
-            <table class="doc-meta-table" style="margin-left: auto;">
+            <table class="doc-meta-table">
               <tr>
                 <td><strong>DN Number:</strong></td>
                 <td><strong>${this.escape(dn.delivery_number)}</strong></td>
@@ -367,16 +367,16 @@ const Printer = {
 
         <div class="doc-billing-grid">
           <div>
-            <h4 style="font-size: 11px; text-transform: uppercase; color: #64748b; margin-bottom: 6px;">DELIVERY DESTINATION & RECIPIENT</h4>
-            <div style="font-size: 14px; font-weight: bold; color: #0f172a;">${this.escape(dn.customer_name)}</div>
-            <div style="color: #334155; font-size: 12.5px; margin-top: 3px;">
+            <h4>DELIVERY DESTINATION & RECIPIENT</h4>
+            <div class="doc-client-name">${this.escape(dn.customer_name)}</div>
+            <div style="color: #334155; margin-top: 2px;">
               <strong>Delivery Address:</strong> ${this.escape(dn.delivery_address || 'Arusha')}
             </div>
-            ${dn.customer_phone ? `<div style="color: #334155; font-size: 12.5px;"><strong>Contact Phone:</strong> ${this.escape(dn.customer_phone)}</div>` : ''}
+            ${dn.customer_phone ? `<div style="color: #334155;"><strong>Contact Phone:</strong> ${this.escape(dn.customer_phone)}</div>` : ''}
           </div>
           <div>
-            <h4 style="font-size: 11px; text-transform: uppercase; color: #64748b; margin-bottom: 6px;">DISPATCH & LOGISTICS INFO</h4>
-            <div style="font-size: 12.5px; color: #334155;">
+            <h4>DISPATCH & LOGISTICS INFO</h4>
+            <div style="color: #334155;">
               <div><strong>Transporter / Driver:</strong> ${this.escape(dn.transporter_name || 'Company Logistics')}</div>
               <div><strong>Vehicle Reg No:</strong> ${this.escape(dn.vehicle_number || 'N/A')}</div>
               <div><strong>Dispatched By:</strong> ${this.escape(dn.dispatched_by_name || 'Storekeeper')}</div>
@@ -387,10 +387,10 @@ const Printer = {
         <table class="doc-table">
           <thead>
             <tr>
-              <th style="text-align: center;">#</th>
+              <th style="text-align: center; width: 36px;">#</th>
               <th>Item Description</th>
-              <th style="text-align: center;">Unit</th>
-              <th style="text-align: center;">Quantity Dispatched</th>
+              <th style="text-align: center; width: 65px;">Unit</th>
+              <th style="text-align: center; width: 65px;">Qty Dispatched</th>
               <th>Condition / Remarks</th>
             </tr>
           </thead>
@@ -400,12 +400,12 @@ const Printer = {
         </table>
 
         ${dn.notes ? `
-          <div style="background: #f8fafc; border: 1px solid #e2e8f0; padding: 10px 14px; border-radius: 6px; font-size: 12px; margin-bottom: 20px;">
+          <div class="doc-info-box" style="margin-bottom: 8px;">
             <strong>Special Dispatch Instructions / Notes:</strong> ${this.escape(dn.notes)}
           </div>
         ` : ''}
 
-        <div style="font-size: 12px; color: #475569; margin-top: 14px; padding: 8px 12px; background: #fffbeb; border: 1px solid #fef3c7; border-radius: 4px;">
+        <div class="doc-info-box doc-ack-box">
           <strong>Acknowledgment:</strong> Received all above goods in sound condition, correct quantities, and satisfactory specification.
         </div>
 
@@ -503,12 +503,12 @@ const Printer = {
 
     let itemsHtml = items.map((item, idx) => `
       <tr>
-        <td style="text-align: center; width: 40px;">${idx + 1}</td>
-        <td><strong>${this.escape(item.product_name || item.name)}</strong></td>
-        <td style="text-align: center; width: 80px;">${item.unit || 'pcs'}</td>
-        <td style="text-align: center; width: 80px; font-weight: bold;">${item.quantity_ordered || item.quantity}</td>
-        <td style="text-align: right; width: 110px;">${this.formatMoney(item.cost_price)}</td>
-        <td style="text-align: right; width: 120px; font-weight: bold;">${this.formatMoney(item.total_price || (item.quantity_ordered * item.cost_price))}</td>
+        <td style="text-align: center; width: 36px;">${idx + 1}</td>
+        <td><div class="doc-item-title">${this.escape(item.product_name || item.name)}</div></td>
+        <td style="text-align: center; width: 65px;">${item.unit || 'pcs'}</td>
+        <td style="text-align: center; width: 65px; font-weight: bold;">${item.quantity_ordered || item.quantity}</td>
+        <td style="text-align: right; width: 105px;">${this.formatMoney(item.cost_price)}</td>
+        <td style="text-align: right; width: 115px; font-weight: bold;">${this.formatMoney(item.total_price || (item.quantity_ordered * item.cost_price))}</td>
       </tr>
     `).join('');
 
@@ -529,7 +529,7 @@ const Printer = {
           </div>
           <div class="doc-type-badge">
             <h1 style="color: #7c3aed;">PURCHASE ORDER</h1>
-            <table class="doc-meta-table" style="margin-left: auto;">
+            <table class="doc-meta-table">
               <tr>
                 <td><strong>PO Number:</strong></td>
                 <td><strong>${this.escape(po.po_number)}</strong></td>
@@ -554,14 +554,14 @@ const Printer = {
 
         <div class="doc-billing-grid">
           <div>
-            <h4 style="font-size: 11px; text-transform: uppercase; color: #64748b; margin-bottom: 6px;">VENDOR / SUPPLIER</h4>
-            <div style="font-size: 14px; font-weight: bold; color: #0f172a;">${this.escape(po.supplier_name || 'Supplier')}</div>
-            ${po.supplier_phone ? `<div style="color: #334155; font-size: 12.5px;"><strong>Phone:</strong> ${this.escape(po.supplier_phone)}</div>` : ''}
-            ${po.supplier_address ? `<div style="color: #334155; font-size: 12.5px;"><strong>Address:</strong> ${this.escape(po.supplier_address)}</div>` : ''}
+            <h4>VENDOR / SUPPLIER</h4>
+            <div class="doc-client-name">${this.escape(po.supplier_name || 'Supplier')}</div>
+            ${po.supplier_phone ? `<div><strong>Phone:</strong> ${this.escape(po.supplier_phone)}</div>` : ''}
+            ${po.supplier_address ? `<div><strong>Address:</strong> ${this.escape(po.supplier_address)}</div>` : ''}
           </div>
           <div style="text-align: right;">
-            <h4 style="font-size: 11px; text-transform: uppercase; color: #64748b; margin-bottom: 6px;">SHIP TO</h4>
-            <div style="font-size: 12.5px; color: #334155;">
+            <h4>SHIP TO</h4>
+            <div style="color: #334155;">
               <strong>${this.escape(cred.company_name)}</strong><br>
               Central Store & Warehouse<br>
               ${this.escape(cred.address)}<br>
@@ -573,12 +573,12 @@ const Printer = {
         <table class="doc-table">
           <thead>
             <tr>
-              <th style="text-align: center;">#</th>
+              <th style="text-align: center; width: 36px;">#</th>
               <th>Item / Material Description</th>
-              <th style="text-align: center;">Unit</th>
-              <th style="text-align: center;">Qty Ordered</th>
-              <th style="text-align: right;">Unit Cost</th>
-              <th style="text-align: right;">Total Amount</th>
+              <th style="text-align: center; width: 65px;">Unit</th>
+              <th style="text-align: center; width: 65px;">Qty Ordered</th>
+              <th style="text-align: right; width: 105px;">Unit Cost</th>
+              <th style="text-align: right; width: 115px;">Total Amount</th>
             </tr>
           </thead>
           <tbody>
@@ -589,14 +589,14 @@ const Printer = {
         <div class="doc-summary-split">
           <div>
             ${po.notes ? `
-              <div style="background: #f8fafc; border: 1px solid #e2e8f0; padding: 10px; border-radius: 6px; font-size: 12px;">
+              <div class="doc-terms-box">
                 <strong>Order Instructions:</strong> ${this.escape(po.notes)}
               </div>
             ` : ''}
           </div>
           <div>
-            <div style="background: #ffffff; border: 1px solid #e2e8f0; border-radius: 6px; padding: 12px;">
-              <div style="display: flex; justify-content: space-between; font-size: 15px; font-weight: bold;">
+            <div class="doc-totals-box">
+              <div class="row grand-total" style="border-top: none; padding-top: 0;">
                 <span>PO TOTAL:</span>
                 <span style="color: #7c3aed;">${this.formatMoney(po.total_amount)}</span>
               </div>
@@ -645,7 +645,7 @@ const Printer = {
           </div>
           <div class="doc-type-badge">
             <h1 style="color: #0d9488;">DAILY AUDIT REPORT</h1>
-            <table class="doc-meta-table" style="margin-left: auto;">
+            <table class="doc-meta-table">
               <tr>
                 <td><strong>Report Date:</strong></td>
                 <td><strong>${this.formatDate(date)}</strong></td>
@@ -658,31 +658,31 @@ const Printer = {
           </div>
         </div>
 
-        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; margin-bottom: 24px;">
-          <div style="background: #f0fdf4; border: 1px solid #bbf7d0; padding: 12px; border-radius: 6px; text-align: center;">
-            <div style="font-size: 11px; text-transform: uppercase; color: #166534; font-weight: 700;">Total Sales</div>
-            <div style="font-size: 18px; font-weight: 900; color: #15803d; margin-top: 4px;">${this.formatMoney(rep.total_sales || 0)}</div>
+        <div style="display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; margin-bottom: 10px;">
+          <div style="background: #f0fdf4; border: 1px solid #bbf7d0; padding: 6px 8px; border-radius: 4px; text-align: center;">
+            <div style="font-size: 9.5px; text-transform: uppercase; color: #166534; font-weight: 700;">Total Sales</div>
+            <div style="font-size: 15px; font-weight: 900; color: #15803d; margin-top: 2px;">${this.formatMoney(rep.total_sales || 0)}</div>
           </div>
-          <div style="background: #fef2f2; border: 1px solid #fecaca; padding: 12px; border-radius: 6px; text-align: center;">
-            <div style="font-size: 11px; text-transform: uppercase; color: #991b1b; font-weight: 700;">Total Expenses</div>
-            <div style="font-size: 18px; font-weight: 900; color: #b91c1c; margin-top: 4px;">${this.formatMoney(rep.total_expenses || 0)}</div>
+          <div style="background: #fef2f2; border: 1px solid #fecaca; padding: 6px 8px; border-radius: 4px; text-align: center;">
+            <div style="font-size: 9.5px; text-transform: uppercase; color: #991b1b; font-weight: 700;">Total Expenses</div>
+            <div style="font-size: 15px; font-weight: 900; color: #b91c1c; margin-top: 2px;">${this.formatMoney(rep.total_expenses || 0)}</div>
           </div>
-          <div style="background: #f8fafc; border: 1px solid #e2e8f0; padding: 12px; border-radius: 6px; text-align: center;">
-            <div style="font-size: 11px; text-transform: uppercase; color: #334155; font-weight: 700;">Daily Net Result</div>
-            <div style="font-size: 18px; font-weight: 900; color: #0f172a; margin-top: 4px;">${this.formatMoney(rep.net_profit || 0)}</div>
+          <div style="background: #f8fafc; border: 1px solid #e2e8f0; padding: 6px 8px; border-radius: 4px; text-align: center;">
+            <div style="font-size: 9.5px; text-transform: uppercase; color: #334155; font-weight: 700;">Daily Net Result</div>
+            <div style="font-size: 15px; font-weight: 900; color: #0f172a; margin-top: 2px;">${this.formatMoney(rep.net_profit || 0)}</div>
           </div>
         </div>
 
-        <h3 style="font-size: 13.5px; margin-bottom: 8px; color: #0f172a; text-transform: uppercase; font-weight: 800;">Sales Transactions</h3>
+        <h3 style="font-size: 11px; margin: 4px 0 3px; color: #0f172a; text-transform: uppercase; font-weight: 800;">Sales Transactions</h3>
         <table class="doc-table">
           <thead>
             <tr>
-              <th>Time</th>
+              <th style="width: 50px;">Time</th>
               <th>Order #</th>
               <th>Staff / Cashier</th>
               <th>Customer</th>
               <th>Payment Method</th>
-              <th style="text-align: right;">Amount</th>
+              <th style="text-align: right; width: 100px;">Amount</th>
             </tr>
           </thead>
           <tbody>
@@ -697,22 +697,22 @@ const Printer = {
               </tr>
             `).join('') : `
               <tr>
-                <td colspan="6" style="text-align: center; color: #64748b; padding: 16px;">No sales transactions recorded on this date.</td>
+                <td colspan="6" style="text-align: center; color: #64748b; padding: 8px;">No sales transactions recorded on this date.</td>
               </tr>
             `}
           </tbody>
         </table>
 
         ${expenses.length > 0 ? `
-          <h3 style="font-size: 13.5px; margin: 18px 0 8px; color: #0f172a; text-transform: uppercase; font-weight: 800;">Daily Expenses</h3>
+          <h3 style="font-size: 11px; margin: 6px 0 3px; color: #0f172a; text-transform: uppercase; font-weight: 800;">Daily Expenses</h3>
           <table class="doc-table">
             <thead>
               <tr>
-                <th>Voucher #</th>
+                <th style="width: 65px;">Voucher #</th>
                 <th>Category</th>
                 <th>Description</th>
-                <th>Payment Source</th>
-                <th style="text-align: right;">Amount</th>
+                <th>Source</th>
+                <th style="text-align: right; width: 95px;">Amount</th>
               </tr>
             </thead>
             <tbody>
@@ -749,6 +749,11 @@ const Printer = {
 
   // Modal Print Preview Display & Print Trigger
   showPrintPreview(htmlContent, title = 'Document Preview') {
+    const isA4 = htmlContent.includes('doc-a4-sheet');
+    document.body.setAttribute('data-print-mode', isA4 ? 'a4' : 'receipt');
+    document.body.classList.toggle('printing-a4', isA4);
+    document.body.classList.toggle('printing-receipt', !isA4);
+
     let previewModal = document.getElementById('print-preview-modal');
     if (!previewModal) {
       previewModal = document.createElement('div');
@@ -758,26 +763,43 @@ const Printer = {
         <div class="modal-box xl">
           <div class="modal-header">
             <h3 id="print-modal-title">Print Preview</h3>
-            <button class="modal-close-btn" onclick="document.getElementById('print-preview-modal').classList.remove('active')">&times;</button>
+            <button class="modal-close-btn" onclick="Printer.closePrintPreview()">&times;</button>
           </div>
-          <div class="modal-body" style="background: #f1f5f9; display: flex; justify-content: center; padding: 20px;">
+          <div class="modal-body" style="background: #f1f5f9; display: flex; justify-content: center; padding: 16px; overflow-y: auto;">
             <div id="print-preview-content"></div>
           </div>
-          <div class="modal-footer">
-            <button class="btn btn-secondary" onclick="document.getElementById('print-preview-modal').classList.remove('active')">Close</button>
-            <button class="btn btn-primary" onclick="window.print()">
-              <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"></path></svg>
-              Print Now
-            </button>
+          <div class="modal-footer" style="display: flex; justify-content: space-between; align-items: center;">
+            <div style="font-size: 12px; color: #475569;" id="print-paper-indicator">
+              ${isA4 ? '📄 Formatted to fit on 1 A4 Page' : '🧾 Thermal Receipt Format (80mm)'}
+            </div>
+            <div style="display: flex; gap: 8px;">
+              <button class="btn btn-secondary" onclick="Printer.closePrintPreview()">Close</button>
+              <button class="btn btn-primary" onclick="window.print()">
+                <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"></path></svg>
+                Print Document
+              </button>
+            </div>
           </div>
         </div>
       `;
       document.body.appendChild(previewModal);
+    } else {
+      const ind = document.getElementById('print-paper-indicator');
+      if (ind) {
+        ind.textContent = isA4 ? '📄 Formatted to fit on 1 A4 Page' : '🧾 Thermal Receipt Format (80mm)';
+      }
     }
 
     document.getElementById('print-modal-title').textContent = title;
     document.getElementById('print-preview-content').innerHTML = htmlContent;
     previewModal.classList.add('active');
+  },
+
+  closePrintPreview() {
+    const modal = document.getElementById('print-preview-modal');
+    if (modal) modal.classList.remove('active');
+    document.body.removeAttribute('data-print-mode');
+    document.body.classList.remove('printing-a4', 'printing-receipt');
   },
 
   escape(str) {
