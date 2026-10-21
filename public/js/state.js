@@ -56,6 +56,11 @@ const State = {
     return b ? b.name : 'Main Shop';
   },
 
+  isAdmin() {
+    const role = (this.currentUser?.role || '').toLowerCase();
+    return role === 'admin' || role === 'manager';
+  },
+
   setSettings(settings) {
     this.settings = settings || {};
     Printer.init(this.settings);

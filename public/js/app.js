@@ -244,11 +244,11 @@ const App = {
       if (headerAvatarEl) headerAvatarEl.innerHTML = photoHtml;
     }
 
-    // Restrict Admin-only views if user is not Admin
+    // Restrict Admin-only views if user is not Admin (hide Capital, Workers, Settings, Branches from normal users)
     const adminItems = document.querySelectorAll('.admin-only');
-    const isAdmin = State.currentUser?.role === 'Admin' || State.currentUser?.role === 'Manager';
+    const isAdmin = State.isAdmin();
     adminItems.forEach(el => {
-      el.style.display = isAdmin ? 'flex' : 'none';
+      el.style.display = isAdmin ? '' : 'none';
     });
 
     this.updateBranchSelectorUI();
@@ -434,6 +434,11 @@ const App = {
         this.renderExpenses(container);
         break;
       case 'capital':
+        if (!State.isAdmin()) {
+          State.showToast('Access restricted: Capital and business financials are only visible to Administrators', 'error');
+          this.navigate('dashboard');
+          return;
+        }
         titleEl.textContent = 'Capital Available & Financial Health';
         subEl.textContent = 'Cash in register, bank, mobile money, and total net business capital';
         this.renderCapital(container);
@@ -497,16 +502,29 @@ const App = {
 
         <!-- Top Metrics Cards -->
         <div class="metrics-grid">
-          <div class="metric-card">
-            <div class="metric-data">
-              <h4>Total Business Capital</h4>
-              <div class="metric-value" style="color: var(--primary);">${State.formatMoney(d.total_capital || d.net_capital || ((parseFloat(d.stock_value) || 0) + (parseFloat(d.capital_available) || 0)))}</div>
-              <div class="metric-sub">Stock Value: ${State.formatMoney(d.stock_value || 0)} • Liquid: ${State.formatMoney(d.capital_available || 0)}</div>
+          ${State.isAdmin() ? `
+            <div class="metric-card">
+              <div class="metric-data">
+                <h4>Total Business Capital</h4>
+                <div class="metric-value" style="color: var(--primary);">${State.formatMoney(d.total_capital || d.net_capital || ((parseFloat(d.stock_value) || 0) + (parseFloat(d.capital_available) || 0)))}</div>
+                <div class="metric-sub">Stock Value: ${State.formatMoney(d.stock_value || 0)} • Liquid: ${State.formatMoney(d.capital_available || 0)}</div>
+              </div>
+              <div class="metric-icon teal">
+                <svg width="24" height="24" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+              </div>
             </div>
-            <div class="metric-icon teal">
-              <svg width="24" height="24" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+          ` : `
+            <div class="metric-card">
+              <div class="metric-data">
+                <h4>My Shift Status</h4>
+                <div class="metric-value" style="color: var(--primary); font-size: 20px;">${State.activeShift ? 'Clocked In (Active)' : 'Not Clocked In'}</div>
+                <div class="metric-sub">${State.currentUser?.role || 'Staff'} • ${State.getCurrentBranchName()}</div>
+              </div>
+              <div class="metric-icon teal">
+                <svg width="24" height="24" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z"></path></svg>
+              </div>
             </div>
-          </div>
+          `}
 
           <div class="metric-card">
             <div class="metric-data">
@@ -1441,35 +1459,63 @@ const App = {
       container.innerHTML = `
         <!-- Inventory Valuation Metrics -->
         <div class="metrics-grid">
-          <div class="metric-card">
-            <div class="metric-data">
-              <h4>Total Stock Asset Value (Cost)</h4>
-              <div class="metric-value" style="color: var(--primary);">${State.formatMoney(cap.stock_cost_valuation)}</div>
-              <div class="metric-sub">Capital invested in physical stock</div>
+          ${State.isAdmin() ? `
+            <div class="metric-card">
+              <div class="metric-data">
+                <h4>Total Stock Asset Value (Cost)</h4>
+                <div class="metric-value" style="color: var(--primary);">${State.formatMoney(cap.stock_cost_valuation)}</div>
+                <div class="metric-sub">Capital invested in physical stock</div>
+              </div>
+              <div class="metric-icon teal">
+                <svg width="24" height="24" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"></path></svg>
+              </div>
             </div>
-            <div class="metric-icon teal">
-              <svg width="24" height="24" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"></path></svg>
+
+            <div class="metric-card">
+              <div class="metric-data">
+                <h4>Estimated Retail Valuation</h4>
+                <div class="metric-value" style="color: var(--secondary);">${State.formatMoney(cap.stock_retail_valuation)}</div>
+                <div class="metric-sub">Total value at selling price</div>
+              </div>
+              <div class="metric-icon blue">
+                <svg width="24" height="24" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+              </div>
             </div>
-          </div>
+          ` : `
+            <div class="metric-card">
+              <div class="metric-data">
+                <h4>Active Stock Items</h4>
+                <div class="metric-value" style="color: var(--success);">${products.filter(p => p.stock_quantity > 0).length} Available</div>
+                <div class="metric-sub">In stock ready to sell</div>
+              </div>
+              <div class="metric-icon green">
+                <svg width="24" height="24" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"></path></svg>
+              </div>
+            </div>
+
+            <div class="metric-card">
+              <div class="metric-data">
+                <h4>Total Items in Catalog</h4>
+                <div class="metric-value" style="color: var(--primary);">${products.length} Products</div>
+                <div class="metric-sub">Registered catalog inventory</div>
+              </div>
+              <div class="metric-icon teal">
+                <svg width="24" height="24" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"></path></svg>
+              </div>
+            </div>
+          `}
 
           <div class="metric-card">
             <div class="metric-data">
-              <h4>Estimated Retail Valuation</h4>
-              <div class="metric-value" style="color: var(--secondary);">${State.formatMoney(cap.stock_retail_valuation)}</div>
-              <div class="metric-sub">Total value at selling price</div>
-            </div>
-            <div class="metric-icon blue">
-              <svg width="24" height="24" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
-            </div>
-          </div>
-
-          <div class="metric-card">
-            <div class="metric-data">
-              <h4>Product Catalog Count</h4>
-              <div class="metric-value">${products.length} Products</div>
-              <div class="metric-sub">${products.filter(p => p.stock_quantity <= p.min_alert_quantity).length} low stock warnings</div>
+              <h4>${State.isAdmin() ? 'Product Catalog Count' : 'Stock Alerts'}</h4>
+              <div class="metric-value" style="${products.filter(p => p.stock_quantity <= p.min_alert_quantity).length > 0 ? 'color: #d97706;' : ''}">${products.filter(p => p.stock_quantity <= p.min_alert_quantity).length} Low Stock</div>
+              <div class="metric-sub">Items requiring restock soon</div>
             </div>
             <div class="metric-icon purple">
+              <svg width="24" height="24" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 10h16M4 14h16M4 18h16"></path></svg>
+            </div>
+          </div>
+        </div>
               <svg width="24" height="24" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 10h16M4 14h16M4 18h16"></path></svg>
             </div>
           </div>
@@ -1519,9 +1565,9 @@ const App = {
                     <th>Category</th>
                     <th>Stock on Hand</th>
                     <th>Unit</th>
-                    <th>Buying Cost</th>
+                    ${State.isAdmin() ? '<th>Buying Cost</th>' : ''}
                     <th>Selling Price</th>
-                    <th>Stock Value (Cost)</th>
+                    ${State.isAdmin() ? '<th>Stock Value (Cost)</th>' : ''}
                     <th>Status</th>
                     <th>Actions</th>
                   </tr>
@@ -1560,9 +1606,9 @@ const App = {
             ${p.stock_quantity}
           </td>
           <td>${this.escape(p.unit || 'pcs')}</td>
-          <td>${State.formatMoney(p.cost_price)}</td>
+          ${State.isAdmin() ? `<td>${State.formatMoney(p.cost_price)}</td>` : ''}
           <td><strong>${State.formatMoney(p.selling_price)}</strong></td>
-          <td><strong>${State.formatMoney(p.cost_price * p.stock_quantity)}</strong></td>
+          ${State.isAdmin() ? `<td><strong>${State.formatMoney(p.cost_price * p.stock_quantity)}</strong></td>` : ''}
           <td>
             <span class="badge ${isOut ? 'badge-danger' : (isLow ? 'badge-warning' : 'badge-success')}">
               ${isOut ? 'Out of Stock' : (isLow ? 'Low Stock Alert' : 'In Stock')}
@@ -1615,7 +1661,7 @@ const App = {
       <form id="stock-adjust-form" onsubmit="App.submitStockAdjust(event, '${p.id}')">
         <div style="background: #f8fafc; padding: 12px; border-radius: 6px; border: 1px solid var(--border); margin-bottom: 14px;">
           <div>Current Stock: <strong>${p.stock_quantity} ${p.unit}</strong></div>
-          <div>Buying Cost: <strong>${State.formatMoney(p.cost_price)}</strong></div>
+          ${State.isAdmin() ? `<div>Buying Cost: <strong>${State.formatMoney(p.cost_price)}</strong></div>` : ''}
         </div>
 
         <div class="form-group">
@@ -1634,10 +1680,14 @@ const App = {
           <div style="font-size: 11px; color: var(--text-muted); margin-top: 2px;">Enter positive number for additions, or negative for write-offs</div>
         </div>
 
-        <div class="form-group">
-          <label class="form-label">Unit Cost Price (${State.settings.currency_symbol || 'TSh'})</label>
-          <input type="number" id="adjust-cost" class="form-input" step="any" value="${p.cost_price}">
-        </div>
+        ${State.isAdmin() ? `
+          <div class="form-group">
+            <label class="form-label">Unit Cost Price (${State.settings.currency_symbol || 'TSh'})</label>
+            <input type="number" id="adjust-cost" class="form-input" step="any" value="${p.cost_price}">
+          </div>
+        ` : `
+          <input type="hidden" id="adjust-cost" value="${p.cost_price}">
+        `}
 
         <div class="form-group">
           <label class="form-label">Notes / Reason</label>
