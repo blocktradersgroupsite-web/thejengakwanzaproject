@@ -45,6 +45,10 @@ const State = {
     localStorage.setItem('jengakwanza_current_branch', this.currentBranch);
   },
 
+  getBranches() {
+    return Array.isArray(this.branches) ? this.branches : [];
+  },
+
   getCurrentBranch() {
     if (!this.currentBranch || this.currentBranch === 'all') return null;
     return this.branches.find(b => String(b.id) === String(this.currentBranch)) || null;
@@ -57,8 +61,10 @@ const State = {
   },
 
   isAdmin() {
-    const role = (this.currentUser?.role || '').toLowerCase();
-    return role === 'admin' || role === 'manager';
+    if (!this.currentUser) return false;
+    const role = String(this.currentUser.role || '').toLowerCase();
+    const user = String(this.currentUser.username || '').toLowerCase();
+    return user === 'admin' || role === 'admin' || role === 'manager' || role === 'owner';
   },
 
   setSettings(settings) {

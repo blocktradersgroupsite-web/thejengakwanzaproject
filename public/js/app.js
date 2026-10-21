@@ -2854,7 +2854,19 @@ const App = {
       State.showToast('Access restricted: Only administrators can add new workers', 'error');
       return;
     }
-    const branches = State.getBranches();
+    let branches = [];
+    try {
+      branches = (typeof State.getBranches === 'function' ? State.getBranches() : null) || [];
+      if (branches.length === 0 && API && API.getBranches) {
+        const bRes = await API.getBranches();
+        branches = bRes.branches || [];
+      }
+    } catch (e) {
+      console.warn('Branch fetch error:', e);
+    }
+    if (!branches || branches.length === 0) {
+      branches = [{ id: 'branch-main', name: 'Main Shop - Arusha', code: 'MAIN' }];
+    }
     const modal = document.getElementById('general-modal');
     document.getElementById('general-modal-title').textContent = 'Add New Worker / Staff Member';
     document.getElementById('general-modal-body').innerHTML = `
@@ -2973,10 +2985,22 @@ const App = {
       State.showToast('Access restricted: Only administrators can edit workers', 'error');
       return;
     }
-    const [wRes, bRes] = await Promise.all([API.getWorkers(), API.getBranches()]);
-    const w = (wRes.workers || []).find(x => String(x.id) === String(workerId));
-    if (!w) return;
-    const branches = bRes.branches || [];
+    let w = null;
+    let branches = [];
+    try {
+      const [wRes, bRes] = await Promise.all([API.getWorkers(), API.getBranches()]);
+      w = (wRes.workers || []).find(x => String(x.id) === String(workerId));
+      branches = bRes.branches || [];
+    } catch (e) {
+      console.warn('Worker modal fetch error:', e);
+    }
+    if (!w) {
+      State.showToast('Worker profile not found', 'error');
+      return;
+    }
+    if (!branches || branches.length === 0) {
+      branches = (typeof State.getBranches === 'function' ? State.getBranches() : null) || [{ id: 'branch-main', name: 'Main Shop - Arusha' }];
+    }
 
     const modal = document.getElementById('general-modal');
     document.getElementById('general-modal-title').textContent = `Edit Worker: ${w.full_name}`;
@@ -4687,47 +4711,64 @@ Corrugated Iron Sheets Gauge 28,Roofing,SHT-G28,012345678905,31000,38000,80,shee
     modal.classList.add('active');
   },
 
+  compressImage(file, maxDim, quality, callback) {
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const img = new Image();
+      img.onload = () => {
+        let w = img.width;
+        let h = img.height;
+        if (w > maxDim || h > maxDim) {
+          if (w > h) {
+            h = Math.round((h * maxDim) / w);
+            w = maxDim;
+          } else {
+            w = Math.round((w * maxDim) / h);
+            h = maxDim;
+          }
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = w;
+        canvas.height = h;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, w, h);
+        const compressed = canvas.toDataURL('image/jpeg', quality);
+        callback(compressed);
+      };
+      img.onerror = () => {
+        callback(e.target.result);
+      };
+      img.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+  },
+
   handleWorkerPhotoSelect(event, previewWrapId, hiddenInputId) {
     const file = event.target.files && event.target.files[0];
     if (!file) return;
 
-    if (file.size > 2 * 1024 * 1024) {
-      State.showToast('Image size exceeds 2MB limit. Please choose a smaller photo.', 'error');
-      return;
-    }
-
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const dataUrl = e.target.result;
+    this.compressImage(file, 260, 0.82, (dataUrl) => {
       const hiddenInput = document.getElementById(hiddenInputId);
       if (hiddenInput) hiddenInput.value = dataUrl;
       const previewWrap = document.getElementById(previewWrapId);
       if (previewWrap) {
         previewWrap.innerHTML = `<img src="${dataUrl}" class="worker-table-avatar" style="width: 70px; height: 70px; border-radius: 50%; object-fit: cover; border: 2px solid var(--primary);" alt="Avatar">`;
       }
-    };
-    reader.readAsDataURL(file);
+    });
   },
 
   handleProfilePhotoSelect(event) {
     const file = event.target.files && event.target.files[0];
     if (!file) return;
 
-    if (file.size > 2 * 1024 * 1024) {
-      State.showToast('Image size exceeds 2MB limit. Please choose a smaller photo.', 'error');
-      return;
-    }
-
-    const reader = new FileReader();
-    reader.onload = (e) => {
-      const dataUrl = e.target.result;
-      document.getElementById('profile-photo-base64').value = dataUrl;
+    this.compressImage(file, 260, 0.82, (dataUrl) => {
+      const hiddenInput = document.getElementById('profile-photo-base64');
+      if (hiddenInput) hiddenInput.value = dataUrl;
       const previewWrap = document.getElementById('profile-photo-preview-wrap');
       if (previewWrap) {
         previewWrap.innerHTML = `<img id="profile-photo-preview" src="${dataUrl}" class="worker-table-avatar" style="width: 80px; height: 80px; border-radius: 50%; object-fit: cover; border: 3px solid var(--primary);" alt="Avatar">`;
       }
-    };
-    reader.readAsDataURL(file);
+    });
   },
 
   async submitMyProfile(e) {

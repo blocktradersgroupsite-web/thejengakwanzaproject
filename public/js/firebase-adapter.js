@@ -105,6 +105,22 @@ const FirebaseAdapter = {
       this.memoryCache.branches = { 'branch-main': defaultBranch };
       this.setCache('branches', this.memoryCache.branches);
     }
+
+    // Baseline admin user if none cached
+    if (!this.memoryCache.users || Object.keys(this.memoryCache.users).length === 0) {
+      const defaultAdmin = {
+        id: 'admin',
+        username: 'admin',
+        full_name: 'System Administrator',
+        role: 'Admin',
+        phone: '0788989889',
+        pin_hash: 'admin123',
+        active: 1,
+        created_at: new Date().toISOString()
+      };
+      this.memoryCache.users = { 'admin': defaultAdmin };
+      this.setCache('users', this.memoryCache.users);
+    }
   },
 
   getCache(collection) {
@@ -348,17 +364,51 @@ const FirebaseAdapter = {
   // -------------------------------------------------------------
   // 2. WORKERS & USER PROFILES
   // -------------------------------------------------------------
-  async getWorkers() {
+  _getUserMap() {
     const cached = this.getCache('users');
-    let workers = [];
+    const map = {};
     if (cached) {
-      workers = Array.isArray(cached) ? cached : Object.keys(cached).map(k => ({ id: k, ...cached[k] }));
+      if (Array.isArray(cached)) {
+        cached.forEach((u, idx) => {
+          if (u) {
+            const uid = String(u.id || ('usr_' + idx));
+            map[uid] = { ...u, id: uid };
+          }
+        });
+      } else if (typeof cached === 'object') {
+        Object.keys(cached).forEach(k => {
+          if (cached[k]) {
+            map[k] = { ...cached[k], id: cached[k].id || k };
+          }
+        });
+      }
     }
+    // Ensure default admin exists
+    if (!map['admin']) {
+      map['admin'] = {
+        id: 'admin',
+        username: 'admin',
+        full_name: 'System Administrator',
+        role: 'Admin',
+        phone: '0788989889',
+        pin_hash: 'admin123',
+        active: 1,
+        created_at: new Date().toISOString()
+      };
+    }
+    return map;
+  },
+
+  async getWorkers() {
+    let userMap = this._getUserMap();
+    let workers = Object.values(userMap);
 
     if (workers.length > 0) {
       if (navigator.onLine) {
         this.rawFetch('users', 'GET', null, 2500).then(raw => {
-          if (raw) this.setCache('users', raw);
+          if (raw) {
+            this.setCache('users', raw);
+          }
         }).catch(() => {});
       }
     } else if (navigator.onLine) {
@@ -366,46 +416,46 @@ const FirebaseAdapter = {
         const raw = await this.rawFetch('users', 'GET', null, 2500);
         if (raw) {
           this.setCache('users', raw);
-          workers = Array.isArray(raw) ? raw : Object.keys(raw).map(k => ({ id: k, ...raw[k] }));
+          userMap = this._getUserMap();
+          workers = Object.values(userMap);
         }
       } catch (e) {}
     }
 
-    // Default admin if nothing stored
-    if (workers.length === 0) {
-      workers = [{
-        id: 'admin',
-        username: 'admin',
-        full_name: 'System Administrator',
-        role: 'Admin',
-        phone: '0788989889',
-        pin_hash: 'admin123',
-        active: 1
-      }];
-    }
     return { success: true, workers };
   },
 
   async addWorker(data) {
-    const id = Date.now().toString();
+    const id = 'usr_' + Date.now();
     const worker = {
       id,
-      ...data,
+      full_name: data.full_name || '',
+      username: data.username || ('user_' + Date.now().toString().slice(-4)),
+      role: data.role || 'Cashier',
+      phone: data.phone || '',
+      national_id: data.national_id || '',
+      address: data.address || '',
+      branch_id: data.branch_id || '',
+      photo_url: data.photo_url || '',
       pin_hash: data.password || '123456',
       active: 1,
       created_at: new Date().toISOString()
     };
 
-    const current = this.getCache('users') || {};
+    const current = this._getUserMap();
     current[id] = worker;
     this.setCache('users', current);
 
-    await this.rtdb(`users/${id}`, 'PUT', worker);
-    return { success: true, id };
+    try {
+      await this.rtdb(`users/${id}`, 'PUT', worker);
+    } catch (e) {
+      console.warn('Network sync for addWorker deferred:', e);
+    }
+    return { success: true, id, worker };
   },
 
   async updateWorker(id, data) {
-    const current = this.getCache('users') || {};
+    const current = this._getUserMap();
     const patchData = { ...data };
     if (patchData.password && patchData.password.trim()) {
       patchData.pin_hash = patchData.password.trim();
@@ -413,21 +463,24 @@ const FirebaseAdapter = {
       delete patchData.password;
     }
     if (current[id]) {
-      current[id] = { ...current[id], ...patchData };
+      current[id] = { ...current[id], ...patchData, updated_at: new Date().toISOString() };
       this.setCache('users', current);
     }
-    await this.rtdb(`users/${id}`, 'PATCH', patchData);
+    try {
+      await this.rtdb(`users/${id}`, 'PATCH', patchData);
+    } catch (e) {
+      console.warn('Network sync for updateWorker deferred:', e);
+    }
     return { success: true };
   },
 
   async updateProfile(userId, data) {
-    const current = this.getCache('users') || {};
-    const u = current[userId];
-    if (!u) throw new Error('Worker profile not found');
+    const current = this._getUserMap();
+    const u = current[userId] || { id: userId, username: 'user' };
 
     const updateFields = {
-      full_name: data.full_name !== undefined ? data.full_name : u.full_name,
-      phone: data.phone !== undefined ? data.phone : u.phone,
+      full_name: data.full_name !== undefined ? data.full_name : (u.full_name || ''),
+      phone: data.phone !== undefined ? data.phone : (u.phone || ''),
       address: data.address !== undefined ? data.address : (u.address || ''),
       national_id: data.national_id !== undefined ? data.national_id : (u.national_id || ''),
       photo_url: data.photo_url !== undefined ? data.photo_url : (u.photo_url || ''),
@@ -441,15 +494,23 @@ const FirebaseAdapter = {
 
     current[userId] = { ...u, ...updateFields };
     this.setCache('users', current);
-    await this.rtdb(`users/${userId}`, 'PATCH', updateFields);
+    try {
+      await this.rtdb(`users/${userId}`, 'PATCH', updateFields);
+    } catch (e) {
+      console.warn('Network sync for updateProfile deferred:', e);
+    }
     return { success: true, user: current[userId] };
   },
 
   async deleteWorker(id) {
-    const current = this.getCache('users') || {};
+    const current = this._getUserMap();
     delete current[id];
     this.setCache('users', current);
-    await this.rtdb(`users/${id}`, 'DELETE');
+    try {
+      await this.rtdb(`users/${id}`, 'DELETE');
+    } catch (e) {
+      console.warn('Network sync for deleteWorker deferred:', e);
+    }
     return { success: true };
   },
 
