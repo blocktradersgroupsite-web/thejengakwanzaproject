@@ -369,13 +369,42 @@ const App = {
   },
 
   // -------------------------------------------------------------
-  // ROUTING & VIEW NAVIGATION
+  // ROUTING & VIEW NAVIGATION & MOBILE RESPONSIVENESS
   // -------------------------------------------------------------
+  toggleMobileSidebar() {
+    const sidebar = document.getElementById('sidebar');
+    const backdrop = document.getElementById('sidebar-backdrop');
+    if (!sidebar) return;
+    if (sidebar.classList.contains('sidebar-open')) {
+      this.closeMobileSidebar();
+    } else {
+      sidebar.classList.add('sidebar-open');
+      if (backdrop) backdrop.classList.add('active');
+    }
+  },
+
+  closeMobileSidebar() {
+    const sidebar = document.getElementById('sidebar');
+    const backdrop = document.getElementById('sidebar-backdrop');
+    if (sidebar) sidebar.classList.remove('sidebar-open');
+    if (backdrop) backdrop.classList.remove('active');
+  },
+
   navigate(route) {
     State.currentRoute = route;
+    this.closeMobileSidebar();
 
-    // Update active nav link
+    // Update active nav link in sidebar
     document.querySelectorAll('.nav-item').forEach(el => {
+      if (el.dataset.route === route) {
+        el.classList.add('active');
+      } else {
+        el.classList.remove('active');
+      }
+    });
+
+    // Update active nav item in mobile bottom bar
+    document.querySelectorAll('.bottom-nav-item').forEach(el => {
       if (el.dataset.route === route) {
         el.classList.add('active');
       } else {
@@ -739,8 +768,45 @@ const App = {
   // -------------------------------------------------------------
   // 2. POINT OF SALE (POS)
   // -------------------------------------------------------------
+  switchPOSTab(tab) {
+    const productsPanel = document.querySelector('.pos-products-panel');
+    const cartPanel = document.querySelector('.pos-cart-panel');
+    const prodTab = document.getElementById('pos-tab-products');
+    const cartTab = document.getElementById('pos-tab-cart');
+    const floatBar = document.getElementById('pos-mobile-floating-bar');
+
+    if (tab === 'cart') {
+      if (productsPanel) productsPanel.classList.add('pos-mobile-hide');
+      if (cartPanel) cartPanel.classList.remove('pos-mobile-hide');
+      if (prodTab) prodTab.classList.remove('active');
+      if (cartTab) cartTab.classList.add('active');
+      if (floatBar) floatBar.style.display = 'none';
+      const cartEl = document.querySelector('.pos-cart-panel');
+      if (cartEl) cartEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    } else {
+      if (productsPanel) productsPanel.classList.remove('pos-mobile-hide');
+      if (cartPanel) cartPanel.classList.add('pos-mobile-hide');
+      if (prodTab) prodTab.classList.add('active');
+      if (cartTab) cartTab.classList.remove('active');
+      const totalQty = (State.cart || []).reduce((acc, it) => acc + (parseFloat(it.quantity) || 0), 0);
+      if (floatBar && totalQty > 0) {
+        floatBar.style.display = 'flex';
+      }
+    }
+  },
+
   async renderPOS(container) {
     container.innerHTML = `
+      <!-- Mobile POS Tab Navigation -->
+      <div class="pos-mobile-nav">
+        <button type="button" id="pos-tab-products" class="pos-mobile-tab active" onclick="App.switchPOSTab('products')">
+          📦 Products Catalog
+        </button>
+        <button type="button" id="pos-tab-cart" class="pos-mobile-tab" onclick="App.switchPOSTab('cart')">
+          🛒 Current Cart <span id="pos-mobile-cart-badge" class="badge badge-info" style="font-size: 11px; padding: 2px 7px;">0</span>
+        </button>
+      </div>
+
       <div class="pos-container">
         <!-- Products Grid Panel -->
         <div class="pos-products-panel">
@@ -760,7 +826,10 @@ const App = {
         </div>
 
         <!-- POS Cart Panel -->
-        <div class="pos-cart-panel">
+        <div class="pos-cart-panel pos-mobile-hide">
+          <button type="button" class="btn btn-sm btn-secondary pos-mobile-back-btn" onclick="App.switchPOSTab('products')" style="display: none; margin-bottom: 12px; width: 100%; font-weight: 600;">
+            &larr; Back to Products Catalog
+          </button>
           <div class="pos-cart-header">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;">
               <h3 style="font-size: 15px; font-weight: 700;">Current Cart</h3>
@@ -800,6 +869,17 @@ const App = {
             </div>
           </div>
         </div>
+      </div>
+
+      <!-- Mobile Floating Checkout Bar -->
+      <div id="pos-mobile-floating-bar" class="pos-mobile-floating-cart" onclick="App.switchPOSTab('cart')">
+        <div class="pos-float-info">
+          <span class="pos-float-count">🛒 <span id="pos-float-items-count">0</span> items in cart</span>
+          <span class="pos-float-total" id="pos-float-total">TSh 0</span>
+        </div>
+        <button type="button" class="btn btn-sm btn-primary" style="pointer-events: none; border-radius: 20px; font-weight: 700; padding: 6px 14px;">
+          View Cart &rarr;
+        </button>
       </div>
     `;
 
@@ -1034,6 +1114,28 @@ const App = {
 
     if (subtotalEl) subtotalEl.textContent = State.formatMoney(subtotal);
     if (totalEl) totalEl.textContent = State.formatMoney(total);
+
+    // Update Mobile Cart Indicators
+    const totalQty = (State.cart || []).reduce((acc, it) => acc + (parseFloat(it.quantity) || 0), 0);
+    const cartBadge = document.getElementById('pos-mobile-cart-badge');
+    if (cartBadge) cartBadge.textContent = totalQty;
+
+    const floatCount = document.getElementById('pos-float-items-count');
+    const floatTotal = document.getElementById('pos-float-total');
+    const floatBar = document.getElementById('pos-mobile-floating-bar');
+
+    if (floatCount) floatCount.textContent = totalQty;
+    if (floatTotal) floatTotal.textContent = State.formatMoney(total);
+
+    if (floatBar) {
+      const prodPanel = document.querySelector('.pos-products-panel');
+      const isProdActive = prodPanel && !prodPanel.classList.contains('pos-mobile-hide');
+      if (totalQty > 0 && isProdActive) {
+        floatBar.style.display = 'flex';
+      } else {
+        floatBar.style.display = 'none';
+      }
+    }
   },
 
   showPOSPaymentModal() {
