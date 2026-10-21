@@ -406,11 +406,17 @@ const FirebaseAdapter = {
 
   async updateWorker(id, data) {
     const current = this.getCache('users') || {};
+    const patchData = { ...data };
+    if (patchData.password && patchData.password.trim()) {
+      patchData.pin_hash = patchData.password.trim();
+    } else {
+      delete patchData.password;
+    }
     if (current[id]) {
-      current[id] = { ...current[id], ...data };
+      current[id] = { ...current[id], ...patchData };
       this.setCache('users', current);
     }
-    await this.rtdb(`users/${id}`, 'PATCH', data);
+    await this.rtdb(`users/${id}`, 'PATCH', patchData);
     return { success: true };
   },
 

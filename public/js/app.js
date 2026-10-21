@@ -444,6 +444,11 @@ const App = {
         this.renderCapital(container);
         break;
       case 'workers':
+        if (!State.isAdmin()) {
+          State.showToast('Access restricted: Only administrators can access staff accounts and shift logs', 'error');
+          this.navigate('dashboard');
+          return;
+        }
         titleEl.textContent = 'Admin: Workers & Daily Shift Logs';
         subEl.textContent = 'Worker directory, assign roles, and see who was working on any specific day';
         this.renderWorkers(container);
@@ -454,11 +459,21 @@ const App = {
         this.renderReports(container);
         break;
       case 'settings':
+        if (!State.isAdmin()) {
+          State.showToast('Access restricted: Only administrators can access company settings', 'error');
+          this.navigate('dashboard');
+          return;
+        }
         titleEl.textContent = 'Company Profile & System Settings';
         subEl.textContent = 'Business credentials, logo, thermal printer format, and backup';
         this.renderSettings(container);
         break;
       case 'branches':
+        if (!State.isAdmin()) {
+          State.showToast('Access restricted: Only administrators can manage shops and branches', 'error');
+          this.navigate('dashboard');
+          return;
+        }
         titleEl.textContent = 'Multi-Shop & Branch Management';
         subEl.textContent = 'Add and manage multiple business shops with isolated stock and calculations';
         this.renderBranches(container);
@@ -668,9 +683,11 @@ const App = {
                         <button class="btn btn-sm btn-secondary" onclick="App.viewAndPrintOrder(${o.id}, '${o.order_type}')">
                           Print
                         </button>
-                        <button class="btn btn-sm btn-danger" onclick="App.deleteOrderAction('${o.id}')">
-                          Delete
-                        </button>
+                        ${State.isAdmin() ? `
+                          <button class="btn btn-sm btn-danger" onclick="App.deleteOrderAction('${o.id}')">
+                            Delete
+                          </button>
+                        ` : ''}
                       </div>
                     </td>
                   </tr>
@@ -732,8 +749,10 @@ const App = {
             <select id="pos-category-filter" class="form-select" style="max-width: 170px;" onchange="App.filterPOSProducts()">
               <option value="">All Categories</option>
             </select>
-            <button class="btn btn-primary" onclick="App.showNewProductModal()">+ Add Product</button>
-            <button class="btn btn-secondary" onclick="App.showStockImportModal()" title="Import stock from CSV / Excel file">📁 Import File</button>
+            ${State.isAdmin() ? `
+              <button class="btn btn-primary" onclick="App.showNewProductModal()">+ Add Product</button>
+              <button class="btn btn-secondary" onclick="App.showStockImportModal()" title="Import stock from CSV / Excel file">📁 Import File</button>
+            ` : ''}
           </div>
           <div id="pos-products-list" class="pos-product-grid">
             <div style="grid-column: 1/-1; text-align: center; padding: 40px;">Loading inventory products...</div>
@@ -842,10 +861,12 @@ const App = {
         <div class="empty-state" style="grid-column: 1/-1;">
           <h3>No products found</h3>
           <p>Add products to your inventory or import from a file to start selling.</p>
-          <div style="display: flex; gap: 10px; justify-content: center; margin-top: 10px;">
-            <button class="btn btn-primary" onclick="App.showNewProductModal()">+ Add New Product</button>
-            <button class="btn btn-secondary" onclick="App.showStockImportModal()">📁 Import Stock from File</button>
-          </div>
+          ${State.isAdmin() ? `
+            <div style="display: flex; gap: 10px; justify-content: center; margin-top: 10px;">
+              <button class="btn btn-primary" onclick="App.showNewProductModal()">+ Add New Product</button>
+              <button class="btn btn-secondary" onclick="App.showStockImportModal()">📁 Import Stock from File</button>
+            </div>
+          ` : '<p style="color: var(--text-muted); font-size: 13px; margin-top: 8px;">Please ask your manager or store admin to add stock items.</p>'}
         </div>
       `;
       return;
@@ -1248,9 +1269,11 @@ const App = {
                           <button class="btn btn-sm btn-secondary" onclick="App.showDeliveryNoteModalFromInvoice(${inv.id})">
                             Delivery Note
                           </button>
-                          <button class="btn btn-sm btn-danger" onclick="App.deleteOrderAction('${inv.id}')">
-                            Delete
-                          </button>
+                          ${State.isAdmin() ? `
+                            <button class="btn btn-sm btn-danger" onclick="App.deleteOrderAction('${inv.id}')">
+                              Delete
+                            </button>
+                          ` : ''}
                         </div>
                       </td>
                     </tr>
@@ -1318,9 +1341,11 @@ const App = {
                           <button class="btn btn-sm btn-primary" onclick="App.convertProformaAction(${p.id})">
                             Convert to Invoice
                           </button>
-                          <button class="btn btn-sm btn-danger" onclick="App.deleteOrderAction('${p.id}')">
-                            Delete
-                          </button>
+                          ${State.isAdmin() ? `
+                            <button class="btn btn-sm btn-danger" onclick="App.deleteOrderAction('${p.id}')">
+                              Delete
+                            </button>
+                          ` : ''}
                         </div>
                       </td>
                     </tr>
@@ -1402,9 +1427,11 @@ const App = {
                           <button class="btn btn-sm btn-secondary" onclick="App.viewAndPrintDeliveryNote(${JSON.stringify(dn).replace(/"/g, '&quot;')})">
                             Print Note
                           </button>
-                          <button class="btn btn-sm btn-danger" onclick="App.deleteDeliveryNoteAction('${dn.id}')">
-                            Delete
-                          </button>
+                          ${State.isAdmin() ? `
+                            <button class="btn btn-sm btn-danger" onclick="App.deleteDeliveryNoteAction('${dn.id}')">
+                              Delete
+                            </button>
+                          ` : ''}
                         </div>
                       </td>
                     </tr>
@@ -1516,21 +1543,21 @@ const App = {
             </div>
           </div>
         </div>
-              <svg width="24" height="24" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 10h16M4 14h16M4 18h16"></path></svg>
-            </div>
-          </div>
-        </div>
 
         <div class="card">
           <div class="card-header">
             <div>
               <h3 class="card-title">Stock Available & Products</h3>
-              <p style="font-size: 12px; color: var(--text-muted);">Real-time inventory levels, buying costs, and selling prices</p>
+              <p style="font-size: 12px; color: var(--text-muted);">${State.isAdmin() ? 'Real-time inventory levels, buying costs, and selling prices' : 'Current stock quantities and product selling prices'}</p>
             </div>
             <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-              <button class="btn btn-secondary" onclick="App.showStockImportModal()">📁 Import Stock from File</button>
-              <button class="btn btn-secondary" onclick="App.showStockMovementsModal()">Stock Movement History</button>
-              <button class="btn btn-primary" onclick="App.showNewProductModal()">+ Add New Product</button>
+              ${State.isAdmin() ? `
+                <button class="btn btn-secondary" onclick="App.showStockImportModal()">📁 Import Stock from File</button>
+                <button class="btn btn-secondary" onclick="App.showStockMovementsModal()">Stock Movement History</button>
+                <button class="btn btn-primary" onclick="App.showNewProductModal()">+ Add New Product</button>
+              ` : `
+                <button class="btn btn-secondary" onclick="App.showStockMovementsModal()">Stock Movement History</button>
+              `}
             </div>
           </div>
 
@@ -1615,20 +1642,24 @@ const App = {
             </span>
           </td>
           <td>
-            <div style="display: flex; gap: 6px; flex-wrap: wrap;">
-              <button class="btn btn-sm btn-secondary" title="Restock or Adjust" onclick="App.showStockAdjustModal('${p.id}')">
-                Adjust
-              </button>
-              <button class="btn btn-sm btn-secondary" title="Edit Product" onclick="App.showEditProductModal('${p.id}')">
-                Edit
-              </button>
-              <button class="btn btn-sm btn-danger" style="background: #991b1b;" title="Clear and Reset Recorded Stock to 0" onclick="App.clearStockAction('${p.id}')">
-                Clear Stock
-              </button>
-              <button class="btn btn-sm btn-danger" title="Delete Product" onclick="App.deleteProductAction('${p.id}')">
-                Delete
-              </button>
-            </div>
+            ${State.isAdmin() ? `
+              <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+                <button class="btn btn-sm btn-secondary" title="Restock or Adjust" onclick="App.showStockAdjustModal('${p.id}')">
+                  Adjust
+                </button>
+                <button class="btn btn-sm btn-secondary" title="Edit Product" onclick="App.showEditProductModal('${p.id}')">
+                  Edit
+                </button>
+                <button class="btn btn-sm btn-danger" style="background: #991b1b;" title="Clear and Reset Recorded Stock to 0" onclick="App.clearStockAction('${p.id}')">
+                  Clear Stock
+                </button>
+                <button class="btn btn-sm btn-danger" title="Delete Product" onclick="App.deleteProductAction('${p.id}')">
+                  Delete
+                </button>
+              </div>
+            ` : `
+              <span class="badge badge-neutral" style="font-size: 11px;">View Only</span>
+            `}
           </td>
         </tr>
       `;
@@ -1652,6 +1683,10 @@ const App = {
   },
 
   showStockAdjustModal(productId) {
+    if (!State.isAdmin()) {
+      State.showToast('Access denied: Only administrators can add or adjust stock', 'error');
+      return;
+    }
     const p = this.productsCache.find(x => String(x.id) === String(productId));
     if (!p) return;
 
@@ -1705,6 +1740,10 @@ const App = {
 
   async submitStockAdjust(e, productId) {
     e.preventDefault();
+    if (!State.isAdmin()) {
+      State.showToast('Access denied: Only administrators can add or adjust stock', 'error');
+      return;
+    }
     const type = document.getElementById('adjust-type').value;
     let qty = parseFloat(document.getElementById('adjust-qty').value) || 0;
     const cost = parseFloat(document.getElementById('adjust-cost').value) || 0;
@@ -1758,7 +1797,7 @@ const App = {
                   <th>Balance After</th>
                   <th>Logged By</th>
                   <th>Notes</th>
-                  <th>Actions</th>
+                  ${State.isAdmin() ? '<th>Actions</th>' : ''}
                 </tr>
               </thead>
               <tbody>
@@ -1773,11 +1812,13 @@ const App = {
                     <td><strong>${m.balance_after}</strong></td>
                     <td>${m.user_name || 'System'}</td>
                     <td>${m.notes || ''}</td>
-                    <td>
-                      <button class="btn btn-sm btn-danger" onclick="App.deleteStockMovementAction('${m.id}')" title="Delete this recorded stock entry and reverse product balance">
-                        Delete / Revert
-                      </button>
-                    </td>
+                    ${State.isAdmin() ? `
+                      <td>
+                        <button class="btn btn-sm btn-danger" onclick="App.deleteStockMovementAction('${m.id}')" title="Delete this recorded stock entry and reverse product balance">
+                          Delete / Revert
+                        </button>
+                      </td>
+                    ` : ''}
                   </tr>
                 `).join('')}
               </tbody>
@@ -2093,9 +2134,11 @@ const App = {
                               Receive Stock
                             </button>
                           ` : ''}
-                          <button class="btn btn-sm btn-danger" onclick="App.deletePurchaseOrderAction('${po.id}')">
-                            Delete
-                          </button>
+                          ${State.isAdmin() ? `
+                            <button class="btn btn-sm btn-danger" onclick="App.deletePurchaseOrderAction('${po.id}')">
+                              Delete
+                            </button>
+                          ` : ''}
                         </div>
                       </td>
                     </tr>
@@ -2269,7 +2312,9 @@ const App = {
                       </td>
                       <td>${exp.recorded_by_name || 'Staff'}</td>
                       <td>
-                        <button class="btn btn-sm btn-danger" onclick="App.deleteExpenseAction(${exp.id})">Delete</button>
+                        ${State.isAdmin() ? `
+                          <button class="btn btn-sm btn-danger" onclick="App.deleteExpenseAction(${exp.id})">Delete</button>
+                        ` : '<span style="color: var(--text-muted); font-size: 11px;">Locked</span>'}
                       </td>
                     </tr>
                   `).join('')}
@@ -2805,11 +2850,28 @@ const App = {
   },
 
   async showNewWorkerModal() {
+    if (!State.isAdmin()) {
+      State.showToast('Access restricted: Only administrators can add new workers', 'error');
+      return;
+    }
     const branches = State.getBranches();
     const modal = document.getElementById('general-modal');
     document.getElementById('general-modal-title').textContent = 'Add New Worker / Staff Member';
     document.getElementById('general-modal-body').innerHTML = `
       <form id="new-worker-form" onsubmit="App.submitNewWorker(event)">
+        <!-- Photo Upload Section -->
+        <div style="display: flex; align-items: center; gap: 16px; background: #f8fafc; padding: 14px; border-radius: 8px; margin-bottom: 16px; border: 1px solid var(--border); flex-wrap: wrap;">
+          <div id="w-photo-preview-wrap">
+            <div id="w-photo-preview" class="worker-table-avatar" style="width: 70px; height: 70px; border-radius: 50%; background: #e2e8f0; display: flex; align-items: center; justify-content: center; font-size: 24px; font-weight: bold; color: #475569; border: 2px solid var(--primary);">👤</div>
+          </div>
+          <div style="flex: 1; min-width: 200px;">
+            <label class="form-label" style="margin-bottom: 4px; font-weight: 700;">Worker Profile Photo / ID Badge</label>
+            <input type="file" id="w-photo-file" class="form-input" accept="image/*" onchange="App.handleWorkerPhotoSelect(event, 'w-photo-preview-wrap', 'w-photo-base64')" style="padding: 5px;">
+            <input type="hidden" id="w-photo-base64" value="">
+            <div style="font-size: 11px; color: var(--text-muted); margin-top: 3px;">Attach worker photo for on-duty identification and daily logs</div>
+          </div>
+        </div>
+
         <div class="form-group">
           <label class="form-label">Full Name *</label>
           <input type="text" id="w-name" class="form-input" placeholder="e.g. Baraka John Mussa" required>
@@ -2870,7 +2932,12 @@ const App = {
 
   async submitNewWorker(e) {
     e.preventDefault();
+    if (!State.isAdmin()) {
+      State.showToast('Access restricted: Only administrators can add new workers', 'error');
+      return;
+    }
     const name = document.getElementById('w-name').value.trim();
+    const photoUrl = (document.getElementById('w-photo-base64')?.value || '').trim();
     const nationalId = document.getElementById('w-nida').value.trim();
     const address = document.getElementById('w-address').value.trim();
     const branchId = document.getElementById('w-branch').value;
@@ -2882,6 +2949,7 @@ const App = {
     try {
       const res = await API.addWorker({
         full_name: name,
+        photo_url: photoUrl,
         national_id: nationalId,
         address: address,
         branch_id: branchId,
@@ -2901,6 +2969,10 @@ const App = {
   },
 
   async showEditWorkerModal(workerId) {
+    if (!State.isAdmin()) {
+      State.showToast('Access restricted: Only administrators can edit workers', 'error');
+      return;
+    }
     const [wRes, bRes] = await Promise.all([API.getWorkers(), API.getBranches()]);
     const w = (wRes.workers || []).find(x => String(x.id) === String(workerId));
     if (!w) return;
@@ -2910,6 +2982,22 @@ const App = {
     document.getElementById('general-modal-title').textContent = `Edit Worker: ${w.full_name}`;
     document.getElementById('general-modal-body').innerHTML = `
       <form id="edit-worker-form" onsubmit="App.submitEditWorker(event, '${w.id}')">
+        <!-- Photo Upload Section -->
+        <div style="display: flex; align-items: center; gap: 16px; background: #f8fafc; padding: 14px; border-radius: 8px; margin-bottom: 16px; border: 1px solid var(--border); flex-wrap: wrap;">
+          <div id="ew-photo-preview-wrap">
+            ${w.photo_url 
+              ? `<img id="ew-photo-preview" src="${w.photo_url}" class="worker-table-avatar" style="width: 70px; height: 70px; border-radius: 50%; object-fit: cover; border: 2px solid var(--primary);" alt="Avatar">`
+              : `<div id="ew-photo-preview" class="worker-table-avatar" style="width: 70px; height: 70px; border-radius: 50%; background: #e2e8f0; display: flex; align-items: center; justify-content: center; font-size: 24px; font-weight: bold; color: #475569; border: 2px solid var(--primary);">${(w.full_name || 'W').charAt(0).toUpperCase()}</div>`
+            }
+          </div>
+          <div style="flex: 1; min-width: 200px;">
+            <label class="form-label" style="margin-bottom: 4px; font-weight: 700;">Worker Profile Photo / ID Badge</label>
+            <input type="file" id="ew-photo-file" class="form-input" accept="image/*" onchange="App.handleWorkerPhotoSelect(event, 'ew-photo-preview-wrap', 'ew-photo-base64')" style="padding: 5px;">
+            <input type="hidden" id="ew-photo-base64" value="${w.photo_url || ''}">
+            <div style="font-size: 11px; color: var(--text-muted); margin-top: 3px;">Update worker photo for daily shift roster identification</div>
+          </div>
+        </div>
+
         <div class="form-group">
           <label class="form-label">Full Name *</label>
           <input type="text" id="ew-name" class="form-input" value="${this.escape(w.full_name)}" required>
@@ -2972,7 +3060,12 @@ const App = {
 
   async submitEditWorker(e, workerId) {
     e.preventDefault();
+    if (!State.isAdmin()) {
+      State.showToast('Access restricted: Only administrators can edit workers', 'error');
+      return;
+    }
     const name = document.getElementById('ew-name').value.trim();
+    const photoUrl = (document.getElementById('ew-photo-base64')?.value || '').trim();
     const nationalId = document.getElementById('ew-nida').value.trim();
     const address = document.getElementById('ew-address').value.trim();
     const branchId = document.getElementById('ew-branch').value;
@@ -2984,6 +3077,7 @@ const App = {
     try {
       const res = await API.updateWorker(workerId, {
         full_name: name,
+        photo_url: photoUrl,
         national_id: nationalId,
         address: address,
         branch_id: branchId,
@@ -3182,6 +3276,10 @@ const App = {
 
   async saveCompanySettings(e) {
     e.preventDefault();
+    if (!State.isAdmin()) {
+      State.showToast('Access denied: Only administrators can change company settings', 'error');
+      return;
+    }
     const data = {
       company_name: document.getElementById('set-company-name').value.trim(),
       tagline: document.getElementById('set-tagline').value.trim(),
@@ -3203,6 +3301,10 @@ const App = {
 
   async saveFirebaseConfig(e) {
     e.preventDefault();
+    if (!State.isAdmin()) {
+      State.showToast('Access denied: Only administrators can modify cloud configuration', 'error');
+      return;
+    }
     const config = {
       apiKey: document.getElementById('fb-api-key').value.trim(),
       projectId: document.getElementById('fb-project-id').value.trim(),
@@ -3335,6 +3437,10 @@ const App = {
   // COMMON MODAL BUILDERS (Products, Customers, Suppliers, Invoices)
   // -------------------------------------------------------------
   showNewProductModal() {
+    if (!State.isAdmin()) {
+      State.showToast('Access denied: Only administrators can add new products', 'error');
+      return;
+    }
     this.newProductImageBase64 = '';
     const modal = document.getElementById('general-modal');
     document.getElementById('general-modal-title').textContent = 'Add New Inventory Product';
@@ -3431,6 +3537,10 @@ const App = {
 
   async submitNewProduct(e) {
     e.preventDefault();
+    if (!State.isAdmin()) {
+      State.showToast('Access denied: Only administrators can add new products', 'error');
+      return;
+    }
     const data = {
       name: document.getElementById('np-name').value.trim(),
       category: document.getElementById('np-category').value.trim() || 'General',
@@ -3462,6 +3572,10 @@ const App = {
   },
 
   showEditProductModal(productId) {
+    if (!State.isAdmin()) {
+      State.showToast('Access denied: Only administrators can edit products', 'error');
+      return;
+    }
     const p = this.productsCache.find(x => String(x.id) === String(productId));
     if (!p) return;
 
@@ -3540,6 +3654,10 @@ const App = {
 
   async submitEditProduct(e, productId) {
     e.preventDefault();
+    if (!State.isAdmin()) {
+      State.showToast('Access denied: Only administrators can edit products', 'error');
+      return;
+    }
     const data = {
       name: document.getElementById('ep-name').value.trim(),
       category: document.getElementById('ep-category').value.trim(),
@@ -3569,6 +3687,10 @@ const App = {
   // STOCK FILE IMPORT (CSV / EXCEL SPREADSHEET)
   // -------------------------------------------------------------
   showStockImportModal() {
+    if (!State.isAdmin()) {
+      State.showToast('Access denied: Only administrators can import stock', 'error');
+      return;
+    }
     this.importedStockProducts = [];
     const modal = document.getElementById('general-modal');
     document.getElementById('general-modal-title').textContent = 'Import Stock & Products from File';
@@ -3797,6 +3919,10 @@ Corrugated Iron Sheets Gauge 28,Roofing,SHT-G28,012345678905,31000,38000,80,shee
   },
 
   async executeStockImport() {
+    if (!State.isAdmin()) {
+      State.showToast('Access denied: Only administrators can import stock', 'error');
+      return;
+    }
     if (!this.importedStockProducts || this.importedStockProducts.length === 0) {
       State.showToast('No products to import', 'warning');
       return;
@@ -4284,9 +4410,13 @@ Corrugated Iron Sheets Gauge 28,Roofing,SHT-G28,012345678905,31000,38000,80,shee
   },
 
   // -------------------------------------------------------------
-  // UNIVERSAL DELETE ACTIONS
+  // UNIVERSAL DELETE & MUTATION ACTIONS (ADMIN-RESTRICTED)
   // -------------------------------------------------------------
   async deleteProductAction(id) {
+    if (!State.isAdmin()) {
+      State.showToast('Access denied: Only administrators can delete products', 'error');
+      return;
+    }
     if (!confirm('Are you sure you want to permanently delete this product? This action cannot be undone.')) return;
     try {
       const res = await API.deleteProduct(id);
@@ -4306,6 +4436,10 @@ Corrugated Iron Sheets Gauge 28,Roofing,SHT-G28,012345678905,31000,38000,80,shee
   },
 
   async deleteCustomerAction(id) {
+    if (!State.isAdmin()) {
+      State.showToast('Access denied: Only administrators can delete customers', 'error');
+      return;
+    }
     if (!confirm('Are you sure you want to delete this customer record?')) return;
     try {
       const res = await API.deleteCustomer(id);
@@ -4319,6 +4453,10 @@ Corrugated Iron Sheets Gauge 28,Roofing,SHT-G28,012345678905,31000,38000,80,shee
   },
 
   async deleteSupplierAction(id) {
+    if (!State.isAdmin()) {
+      State.showToast('Access denied: Only administrators can delete suppliers', 'error');
+      return;
+    }
     if (!confirm('Are you sure you want to delete this supplier?')) return;
     try {
       const res = await API.deleteSupplier(id);
@@ -4332,6 +4470,10 @@ Corrugated Iron Sheets Gauge 28,Roofing,SHT-G28,012345678905,31000,38000,80,shee
   },
 
   async deleteOrderAction(id) {
+    if (!State.isAdmin()) {
+      State.showToast('Access denied: Only administrators can delete sales or invoices', 'error');
+      return;
+    }
     if (!confirm('Are you sure you want to permanently delete this order / invoice record?')) return;
     try {
       const res = await API.deleteOrder(id);
@@ -4353,6 +4495,10 @@ Corrugated Iron Sheets Gauge 28,Roofing,SHT-G28,012345678905,31000,38000,80,shee
   },
 
   async deleteDeliveryNoteAction(id) {
+    if (!State.isAdmin()) {
+      State.showToast('Access denied: Only administrators can delete delivery notes', 'error');
+      return;
+    }
     if (!confirm('Are you sure you want to delete this delivery note?')) return;
     try {
       const res = await API.deleteDeliveryNote(id);
@@ -4366,6 +4512,10 @@ Corrugated Iron Sheets Gauge 28,Roofing,SHT-G28,012345678905,31000,38000,80,shee
   },
 
   async deletePurchaseOrderAction(id) {
+    if (!State.isAdmin()) {
+      State.showToast('Access denied: Only administrators can delete purchase orders', 'error');
+      return;
+    }
     if (!confirm('Are you sure you want to delete this purchase order?')) return;
     try {
       const res = await API.deletePurchaseOrder(id);
@@ -4379,6 +4529,10 @@ Corrugated Iron Sheets Gauge 28,Roofing,SHT-G28,012345678905,31000,38000,80,shee
   },
 
   async deleteWorkerAction(id) {
+    if (!State.isAdmin()) {
+      State.showToast('Access denied: Only administrators can delete staff accounts', 'error');
+      return;
+    }
     if (!confirm('Are you sure you want to delete this staff account? They will no longer be able to log in.')) return;
     try {
       const res = await API.deleteWorker(id);
@@ -4392,6 +4546,10 @@ Corrugated Iron Sheets Gauge 28,Roofing,SHT-G28,012345678905,31000,38000,80,shee
   },
 
   async deleteCapitalEntryAction(id) {
+    if (!State.isAdmin()) {
+      State.showToast('Access denied: Only administrators can delete capital adjustments', 'error');
+      return;
+    }
     if (!confirm('Are you sure you want to delete this capital adjustment entry?')) return;
     try {
       const res = await API.deleteCapitalAdjustment(id);
@@ -4408,6 +4566,10 @@ Corrugated Iron Sheets Gauge 28,Roofing,SHT-G28,012345678905,31000,38000,80,shee
   // STOCK AUDIT & REMOVAL / DELETION ACTIONS
   // -------------------------------------------------------------
   async deleteStockMovementAction(id) {
+    if (!State.isAdmin()) {
+      State.showToast('Access denied: Only administrators can delete stock movements', 'error');
+      return;
+    }
     if (!confirm('Are you sure you want to delete this recorded stock entry? The product stock quantity balance will automatically be reversed.')) return;
     try {
       const res = await API.deleteStockMovement(id);
@@ -4424,6 +4586,10 @@ Corrugated Iron Sheets Gauge 28,Roofing,SHT-G28,012345678905,31000,38000,80,shee
   },
 
   async clearStockAction(productId) {
+    if (!State.isAdmin()) {
+      State.showToast('Access denied: Only administrators can clear or delete stock', 'error');
+      return;
+    }
     const p = (this.productsCache || []).find(x => String(x.id) === String(productId));
     const name = p ? p.name : 'this item';
     if (!confirm(`Are you sure you want to CLEAR and reset recorded stock for "${name}" to ZERO (0)? This action will be logged in the audit trail.`)) return;
@@ -4519,6 +4685,28 @@ Corrugated Iron Sheets Gauge 28,Roofing,SHT-G28,012345678905,31000,38000,80,shee
       </form>
     `;
     modal.classList.add('active');
+  },
+
+  handleWorkerPhotoSelect(event, previewWrapId, hiddenInputId) {
+    const file = event.target.files && event.target.files[0];
+    if (!file) return;
+
+    if (file.size > 2 * 1024 * 1024) {
+      State.showToast('Image size exceeds 2MB limit. Please choose a smaller photo.', 'error');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const dataUrl = e.target.result;
+      const hiddenInput = document.getElementById(hiddenInputId);
+      if (hiddenInput) hiddenInput.value = dataUrl;
+      const previewWrap = document.getElementById(previewWrapId);
+      if (previewWrap) {
+        previewWrap.innerHTML = `<img src="${dataUrl}" class="worker-table-avatar" style="width: 70px; height: 70px; border-radius: 50%; object-fit: cover; border: 2px solid var(--primary);" alt="Avatar">`;
+      }
+    };
+    reader.readAsDataURL(file);
   },
 
   handleProfilePhotoSelect(event) {
@@ -4734,6 +4922,10 @@ Corrugated Iron Sheets Gauge 28,Roofing,SHT-G28,012345678905,31000,38000,80,shee
   },
 
   showNewBranchModal() {
+    if (!State.isAdmin()) {
+      State.showToast('Access denied: Only administrators can create new branches', 'error');
+      return;
+    }
     const modal = document.getElementById('general-modal');
     document.getElementById('general-modal-title').textContent = 'Add New Shop / Branch';
     document.getElementById('general-modal-body').innerHTML = `
@@ -4772,6 +4964,10 @@ Corrugated Iron Sheets Gauge 28,Roofing,SHT-G28,012345678905,31000,38000,80,shee
 
   async submitNewBranch(e) {
     e.preventDefault();
+    if (!State.isAdmin()) {
+      State.showToast('Access denied: Only administrators can create new branches', 'error');
+      return;
+    }
     const name = document.getElementById('nb-name').value.trim();
     const code = document.getElementById('nb-code').value.trim();
     const phone = document.getElementById('nb-phone').value.trim();
@@ -4801,6 +4997,10 @@ Corrugated Iron Sheets Gauge 28,Roofing,SHT-G28,012345678905,31000,38000,80,shee
   },
 
   async showEditBranchModal(branchId) {
+    if (!State.isAdmin()) {
+      State.showToast('Access denied: Only administrators can edit branches', 'error');
+      return;
+    }
     const res = await API.getBranches();
     const b = (res.branches || []).find(x => String(x.id) === String(branchId));
     if (!b) return;
@@ -4843,6 +5043,10 @@ Corrugated Iron Sheets Gauge 28,Roofing,SHT-G28,012345678905,31000,38000,80,shee
 
   async submitEditBranch(e, branchId) {
     e.preventDefault();
+    if (!State.isAdmin()) {
+      State.showToast('Access denied: Only administrators can edit branches', 'error');
+      return;
+    }
     const name = document.getElementById('eb-name').value.trim();
     const code = document.getElementById('eb-code').value.trim();
     const phone = document.getElementById('eb-phone').value.trim();
@@ -4871,6 +5075,10 @@ Corrugated Iron Sheets Gauge 28,Roofing,SHT-G28,012345678905,31000,38000,80,shee
   },
 
   async deleteBranchAction(branchId) {
+    if (!State.isAdmin()) {
+      State.showToast('Access denied: Only administrators can delete branches', 'error');
+      return;
+    }
     if (!confirm('Are you sure you want to delete this shop / branch? All separate records associated with this branch will be removed.')) return;
     try {
       const res = await API.deleteBranch(branchId);
