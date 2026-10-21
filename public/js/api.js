@@ -129,7 +129,34 @@ const API = {
     });
   },
 
-  // Workers
+  // Branches / Shops
+  async getBranches() {
+    if (await this.checkFirebaseInit()) return FirebaseAdapter.getBranches();
+    return this.request('branches');
+  },
+
+  async addBranch(data) {
+    if (await this.checkFirebaseInit()) return FirebaseAdapter.addBranch(data);
+    return this.request('branches', {
+      method: 'POST',
+      body: JSON.stringify(data)
+    });
+  },
+
+  async updateBranch(id, data) {
+    if (await this.checkFirebaseInit()) return FirebaseAdapter.updateBranch(id, data);
+    return this.request(`branches/${id}`, {
+      method: 'PUT',
+      body: JSON.stringify(data)
+    });
+  },
+
+  async deleteBranch(id) {
+    if (await this.checkFirebaseInit()) return FirebaseAdapter.deleteBranch(id);
+    return this.request(`branches/${id}`, { method: 'DELETE' });
+  },
+
+  // Workers & Profiles
   async getWorkers() {
     if (await this.checkFirebaseInit()) return FirebaseAdapter.getWorkers();
     return this.request('workers');
@@ -151,14 +178,22 @@ const API = {
     });
   },
 
+  async updateProfile(userId, profileData) {
+    if (await this.checkFirebaseInit()) return FirebaseAdapter.updateProfile(userId, profileData);
+    return this.request(`workers/${userId}/profile`, {
+      method: 'PATCH',
+      body: JSON.stringify(profileData)
+    });
+  },
+
   async deleteWorker(id) {
     if (await this.checkFirebaseInit()) return FirebaseAdapter.deleteWorker(id);
     return this.request(`workers/${id}`, { method: 'DELETE' });
   },
 
   // Shifts
-  async getShifts(date) {
-    if (await this.checkFirebaseInit()) return FirebaseAdapter.getShifts(date);
+  async getShifts(date, branchId) {
+    if (await this.checkFirebaseInit()) return FirebaseAdapter.getShifts(date, branchId);
     const q = date ? `?date=${encodeURIComponent(date)}` : '';
     return this.request(`shifts${q}`);
   },
@@ -180,8 +215,8 @@ const API = {
   },
 
   // Products
-  async getProducts() {
-    if (await this.checkFirebaseInit()) return FirebaseAdapter.getProducts();
+  async getProducts(branchId) {
+    if (await this.checkFirebaseInit()) return FirebaseAdapter.getProducts(branchId);
     return this.request('products');
   },
 
@@ -225,6 +260,16 @@ const API = {
   async getStockMovements(limit = 100) {
     if (await this.checkFirebaseInit()) return FirebaseAdapter.getStockMovements(limit);
     return this.request(`stock/movements?limit=${limit}`);
+  },
+
+  async deleteStockMovement(id) {
+    if (await this.checkFirebaseInit()) return FirebaseAdapter.deleteStockMovement(id);
+    return this.request(`stock/movements/${id}`, { method: 'DELETE' });
+  },
+
+  async clearProductStock(productId, userId) {
+    if (await this.checkFirebaseInit()) return FirebaseAdapter.clearProductStock(productId, userId);
+    return this.request(`products/${productId}/clear-stock`, { method: 'POST' });
   },
 
   // Customers & Debtors
@@ -313,8 +358,8 @@ const API = {
   },
 
   // Orders
-  async getOrders(type) {
-    if (await this.checkFirebaseInit()) return FirebaseAdapter.getOrders(type);
+  async getOrders(type, branchId) {
+    if (await this.checkFirebaseInit()) return FirebaseAdapter.getOrders(type, branchId);
     const q = type ? `?type=${encodeURIComponent(type)}` : '';
     return this.request(`orders${q}`);
   },
@@ -365,8 +410,8 @@ const API = {
   },
 
   // Expenses
-  async getExpenses(date) {
-    if (await this.checkFirebaseInit()) return FirebaseAdapter.getExpenses(date);
+  async getExpenses(date, branchId) {
+    if (await this.checkFirebaseInit()) return FirebaseAdapter.getExpenses(date, branchId);
     const q = date ? `?date=${encodeURIComponent(date)}` : '';
     return this.request(`expenses${q}`);
   },
@@ -385,8 +430,8 @@ const API = {
   },
 
   // Capital
-  async getCapital() {
-    if (await this.checkFirebaseInit()) return FirebaseAdapter.getCapital();
+  async getCapital(branchId) {
+    if (await this.checkFirebaseInit()) return FirebaseAdapter.getCapital(branchId);
     return this.request('capital');
   },
 
@@ -404,8 +449,8 @@ const API = {
   },
 
   // Reports
-  async getDashboardReport() {
-    if (await this.checkFirebaseInit()) return FirebaseAdapter.getDashboardReport();
+  async getDashboardReport(branchId) {
+    if (await this.checkFirebaseInit()) return FirebaseAdapter.getDashboardReport(branchId);
     return this.request('reports/dashboard');
   },
 

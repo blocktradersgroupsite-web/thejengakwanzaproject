@@ -224,14 +224,24 @@ const App = {
       btn.onclick = () => App.showClockInModal();
     }
 
-    // Update User Profile in sidebar
+    // Update User Profile in sidebar & header
     const nameEl = document.getElementById('sidebar-user-name');
     const roleEl = document.getElementById('sidebar-user-role');
     const avatarEl = document.getElementById('sidebar-user-avatar');
-    if (State.currentUser && nameEl && roleEl) {
-      nameEl.textContent = State.currentUser.full_name;
-      roleEl.textContent = `${State.currentUser.role} • ${State.currentUser.username}`;
-      if (avatarEl) avatarEl.textContent = State.currentUser.full_name.charAt(0).toUpperCase();
+    const headerNameEl = document.getElementById('header-user-name');
+    const headerAvatarEl = document.getElementById('header-user-avatar');
+
+    if (State.currentUser) {
+      if (nameEl) nameEl.textContent = State.currentUser.full_name;
+      if (roleEl) roleEl.textContent = `${State.currentUser.role} • ${State.currentUser.username}`;
+      if (headerNameEl) headerNameEl.textContent = State.currentUser.full_name.split(' ')[0] || State.currentUser.username;
+
+      const photoHtml = State.currentUser.photo_url 
+        ? `<img src="${State.currentUser.photo_url}" style="width: 100%; height: 100%; object-fit: cover; border-radius: 50%;">`
+        : State.currentUser.full_name.charAt(0).toUpperCase();
+
+      if (avatarEl) avatarEl.innerHTML = photoHtml;
+      if (headerAvatarEl) headerAvatarEl.innerHTML = photoHtml;
     }
 
     // Restrict Admin-only views if user is not Admin
@@ -240,6 +250,31 @@ const App = {
     adminItems.forEach(el => {
       el.style.display = isAdmin ? 'flex' : 'none';
     });
+
+    this.updateBranchSelectorUI();
+  },
+
+  async updateBranchSelectorUI() {
+    try {
+      const res = await API.getBranches();
+      const branches = res.branches || [];
+      State.setBranches(branches);
+
+      const sel = document.getElementById('header-branch-select');
+      if (sel) {
+        sel.innerHTML = `
+          <option value="all">🏪 All Branches (Consolidated)</option>
+          ${branches.map(b => `
+            <option value="${b.id}" ${b.id === State.currentBranch ? 'selected' : ''}>
+              🏪 ${this.escape(b.name)}
+            </option>
+          `).join('')}
+        `;
+        sel.value = State.currentBranch || 'all';
+      }
+    } catch (e) {
+      console.warn('Branch selector load:', e);
+    }
   },
 
   showClockInModal() {
@@ -418,6 +453,11 @@ const App = {
         subEl.textContent = 'Business credentials, logo, thermal printer format, and backup';
         this.renderSettings(container);
         break;
+      case 'branches':
+        titleEl.textContent = 'Multi-Shop & Branch Management';
+        subEl.textContent = 'Add and manage multiple business shops with isolated stock and calculations';
+        this.renderBranches(container);
+        break;
       default:
         this.renderDashboard(container);
     }
@@ -434,10 +474,27 @@ const App = {
   async renderDashboard(container) {
     container.innerHTML = `<div style="text-align: center; padding: 40px;"><div class="spinner"></div> Loading Dashboard...</div>`;
     try {
-      const res = await API.getDashboardReport();
+      const res = await API.getDashboardReport(State.currentBranch);
       const d = res.dashboard || res || {};
+      const activeBranchName = State.getCurrentBranchName();
 
       container.innerHTML = `
+        <!-- Active Branch Context Indicator -->
+        <div style="display: flex; justify-content: space-between; align-items: center; background: #ffffff; border: 1px solid var(--border); border-left: 4px solid var(--primary); padding: 12px 18px; border-radius: 8px; margin-bottom: 20px;">
+          <div>
+            <div style="font-size: 11px; text-transform: uppercase; color: var(--text-muted); font-weight: 700; letter-spacing: 0.5px;">ACTIVE SHOP VIEW</div>
+            <div style="font-size: 16px; font-weight: 800; color: var(--text-main); margin-top: 2px;">
+              🏪 ${this.escape(activeBranchName)}
+            </div>
+          </div>
+          <div style="display: flex; gap: 8px; align-items: center;">
+            <span class="badge ${State.currentBranch === 'all' ? 'badge-neutral' : 'badge-success'}">
+              ${State.currentBranch === 'all' ? 'All Shops Combined' : 'Isolated Branch Numbers'}
+            </span>
+            <button class="btn btn-sm btn-outline admin-only" onclick="App.navigate('branches')">Manage Shops</button>
+          </div>
+        </div>
+
         <!-- Top Metrics Cards -->
         <div class="metrics-grid">
           <div class="metric-card">
@@ -1512,12 +1569,15 @@ const App = {
             </span>
           </td>
           <td>
-            <div style="display: flex; gap: 6px;">
+            <div style="display: flex; gap: 6px; flex-wrap: wrap;">
               <button class="btn btn-sm btn-secondary" title="Restock or Adjust" onclick="App.showStockAdjustModal('${p.id}')">
                 Adjust
               </button>
               <button class="btn btn-sm btn-secondary" title="Edit Product" onclick="App.showEditProductModal('${p.id}')">
                 Edit
+              </button>
+              <button class="btn btn-sm btn-danger" style="background: #991b1b;" title="Clear and Reset Recorded Stock to 0" onclick="App.clearStockAction('${p.id}')">
+                Clear Stock
               </button>
               <button class="btn btn-sm btn-danger" title="Delete Product" onclick="App.deleteProductAction('${p.id}')">
                 Delete
@@ -1585,6 +1645,9 @@ const App = {
         </div>
 
         <button type="submit" class="btn btn-primary" style="width: 100%;">Save Stock Adjustment</button>
+        <button type="button" class="btn btn-danger" style="width: 100%; margin-top: 8px; background: #991b1b;" onclick="App.clearStockAction('${p.id}')">
+          🗑️ Clear & Reset Recorded Stock to Zero (0)
+        </button>
       </form>
     `;
     modal.classList.add('active');
@@ -1645,6 +1708,7 @@ const App = {
                   <th>Balance After</th>
                   <th>Logged By</th>
                   <th>Notes</th>
+                  <th>Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -1659,6 +1723,11 @@ const App = {
                     <td><strong>${m.balance_after}</strong></td>
                     <td>${m.user_name || 'System'}</td>
                     <td>${m.notes || ''}</td>
+                    <td>
+                      <button class="btn btn-sm btn-danger" onclick="App.deleteStockMovementAction('${m.id}')" title="Delete this recorded stock entry and reverse product balance">
+                        Delete / Revert
+                      </button>
+                    </td>
                   </tr>
                 `).join('')}
               </tbody>
@@ -2488,9 +2557,21 @@ const App = {
     const selectedDate = State.selectedReportDate || new Date().toISOString().split('T')[0];
 
     try {
-      const [wRes, sRes] = await Promise.all([API.getWorkers(), API.getShifts(selectedDate)]);
+      const [wRes, sRes, bRes] = await Promise.all([
+        API.getWorkers(),
+        API.getShifts(selectedDate),
+        API.getBranches()
+      ]);
       const workers = wRes.workers || [];
       const shifts = sRes.shifts || [];
+      const branches = bRes.branches || [];
+      State.setBranches(branches);
+
+      const branchMap = {};
+      branches.forEach(b => { branchMap[b.id] = b.name; });
+
+      const workerMap = {};
+      workers.forEach(w => { workerMap[w.id] = w; });
 
       container.innerHTML = `
         <!-- DAILY ATTENDANCE & SHIFT LOG SECTION -->
@@ -2501,7 +2582,7 @@ const App = {
                 <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z"></path></svg>
                 Who Was Working on That Specific Day?
               </h3>
-              <p style="font-size: 12px; color: var(--text-muted);">Select any calendar date to see exactly which workers were on duty, their hours, and sales handled</p>
+              <p style="font-size: 12px; color: var(--text-muted);">See exactly which workers were on duty, their photo ID, national ID (NIDA), assigned branch, hours, and sales handled</p>
             </div>
             <!-- Date Filter Picker -->
             <div style="display: flex; align-items: center; gap: 8px;">
@@ -2510,7 +2591,7 @@ const App = {
             </div>
           </div>
 
-          <div style="background: #f8fafc; padding: 12px 16px; border-radius: 6px; margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center;">
+          <div style="background: #f8fafc; padding: 12px 16px; border-radius: 6px; margin-bottom: 16px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
             <div>
               <strong>Date Selected:</strong> ${State.formatDate(selectedDate)}
             </div>
@@ -2530,7 +2611,8 @@ const App = {
               <table class="data-table">
                 <thead>
                   <tr>
-                    <th>Worker Name</th>
+                    <th>Worker on Duty</th>
+                    <th>Branch / Shop</th>
                     <th>Role</th>
                     <th>Phone</th>
                     <th>Clock In Time</th>
@@ -2543,24 +2625,43 @@ const App = {
                   </tr>
                 </thead>
                 <tbody>
-                  ${shifts.map(s => `
-                    <tr>
-                      <td><strong>${s.worker_name}</strong></td>
-                      <td><span class="badge badge-neutral">${s.worker_role}</span></td>
-                      <td>${s.worker_phone || '-'}</td>
-                      <td><strong>${new Date(s.clock_in).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</strong></td>
-                      <td>${s.clock_out ? `<strong>${new Date(s.clock_out).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</strong>` : '<span style="color: var(--success); font-weight: 600;">Active On Duty</span>'}</td>
-                      <td>${State.formatMoney(s.opening_cash)}</td>
-                      <td>${s.closing_cash !== null ? State.formatMoney(s.closing_cash) : '-'}</td>
-                      <td><strong>${s.sales_count || 0}</strong> orders</td>
-                      <td style="color: var(--primary); font-weight: bold;">${State.formatMoney(s.total_sales || 0)}</td>
-                      <td>
-                        <span class="badge ${s.clock_out ? 'badge-neutral' : 'badge-success'}">
-                          ${s.clock_out ? 'Clocked Out' : 'Active On Duty'}
-                        </span>
-                      </td>
-                    </tr>
-                  `).join('')}
+                  ${shifts.map(s => {
+                    const w = workerMap[s.worker_id] || {};
+                    const photo = s.photo_url || w.photo_url || '';
+                    const nationalId = s.national_id || w.national_id || '';
+                    const branchName = branchMap[s.branch_id || w.branch_id] || 'Main Shop';
+                    const initial = (s.worker_name || 'W').charAt(0).toUpperCase();
+                    return `
+                      <tr>
+                        <td>
+                          <div style="display: flex; align-items: center; gap: 10px;">
+                            ${photo 
+                              ? `<img src="${photo}" class="worker-table-avatar" alt="${this.escape(s.worker_name)}">`
+                              : `<div class="worker-table-avatar" style="display: flex; align-items: center; justify-content: center; background: #e2e8f0; font-weight: 700; color: #475569;">${initial}</div>`
+                            }
+                            <div>
+                              <strong>${this.escape(s.worker_name)}</strong>
+                              ${nationalId ? `<div style="font-size: 11px; color: var(--text-muted);">NIDA: <code>${this.escape(nationalId)}</code></div>` : ''}
+                            </div>
+                          </div>
+                        </td>
+                        <td><span class="badge badge-info">${this.escape(branchName)}</span></td>
+                        <td><span class="badge badge-neutral">${this.escape(s.worker_role || w.role || 'Staff')}</span></td>
+                        <td>${this.escape(s.worker_phone || w.phone || '-')}</td>
+                        <td><strong>${new Date(s.clock_in).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</strong></td>
+                        <td>${s.clock_out ? `<strong>${new Date(s.clock_out).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</strong>` : '<span style="color: var(--success); font-weight: 600;">Active On Duty</span>'}</td>
+                        <td>${State.formatMoney(s.opening_cash)}</td>
+                        <td>${s.closing_cash !== null ? State.formatMoney(s.closing_cash) : '-'}</td>
+                        <td><strong>${s.sales_count || 0}</strong> orders</td>
+                        <td style="color: var(--primary); font-weight: bold;">${State.formatMoney(s.total_sales || 0)}</td>
+                        <td>
+                          <span class="badge ${s.clock_out ? 'badge-neutral' : 'badge-success'}">
+                            ${s.clock_out ? 'Clocked Out' : 'Active On Duty'}
+                          </span>
+                        </td>
+                      </tr>
+                    `;
+                  }).join('')}
                 </tbody>
               </table>
             </div>
@@ -2572,7 +2673,7 @@ const App = {
           <div class="card-header">
             <div>
               <h3 class="card-title">Staff & Worker Accounts Management</h3>
-              <p style="font-size: 12px; color: var(--text-muted);">Admin profile: Add new workers, assign system roles and security credentials</p>
+              <p style="font-size: 12px; color: var(--text-muted);">Admin profile: Add new workers, assign branches, verify National ID (NIDA), photos, and roles</p>
             </div>
             <button class="btn btn-primary" onclick="App.showNewWorkerModal()">+ Add New Worker</button>
           </div>
@@ -2581,7 +2682,10 @@ const App = {
             <table class="data-table">
               <thead>
                 <tr>
-                  <th>Worker Name</th>
+                  <th>Worker Profile</th>
+                  <th>National ID (NIDA)</th>
+                  <th>Address</th>
+                  <th>Assigned Branch</th>
                   <th>Username</th>
                   <th>Role</th>
                   <th>Phone Number</th>
@@ -2591,32 +2695,50 @@ const App = {
                 </tr>
               </thead>
               <tbody>
-                ${workers.map(w => `
-                  <tr>
-                    <td><strong>${w.full_name}</strong></td>
-                    <td><code>${w.username}</code></td>
-                    <td><span class="badge ${w.role === 'Admin' ? 'badge-info' : 'badge-neutral'}">${w.role}</span></td>
-                    <td>${w.phone || '-'}</td>
-                    <td>
-                      <span class="badge ${w.active ? 'badge-success' : 'badge-danger'}">
-                        ${w.active ? 'Active' : 'Disabled'}
-                      </span>
-                    </td>
-                    <td>${State.formatDate(w.created_at)}</td>
-                    <td>
-                      <div style="display: flex; gap: 6px;">
-                        <button class="btn btn-sm btn-secondary" onclick="App.showEditWorkerModal('${w.id}')">
-                          Edit
-                        </button>
-                        ${w.username !== 'admin' && String(w.id) !== String(State.currentUser?.id) ? `
-                          <button class="btn btn-sm btn-danger" onclick="App.deleteWorkerAction('${w.id}')">
-                            Delete
+                ${workers.map(w => {
+                  const initial = (w.full_name || w.username || 'W').charAt(0).toUpperCase();
+                  const bName = branchMap[w.branch_id] || 'All / Main Shop';
+                  return `
+                    <tr>
+                      <td>
+                        <div style="display: flex; align-items: center; gap: 10px;">
+                          ${w.photo_url 
+                            ? `<img src="${w.photo_url}" class="worker-table-avatar" alt="${this.escape(w.full_name)}">`
+                            : `<div class="worker-table-avatar" style="display: flex; align-items: center; justify-content: center; background: #e2e8f0; font-weight: 700; color: #475569;">${initial}</div>`
+                          }
+                          <div>
+                            <strong>${this.escape(w.full_name)}</strong>
+                            <div style="font-size: 11px; color: var(--text-muted);">${w.username === 'admin' ? 'Primary Admin' : 'Worker'}</div>
+                          </div>
+                        </div>
+                      </td>
+                      <td>${w.national_id ? `<code>${this.escape(w.national_id)}</code>` : '<span style="color: var(--text-muted); font-size: 12px;">Not set</span>'}</td>
+                      <td style="font-size: 12px; max-width: 140px;">${this.escape(w.address || '-')}</td>
+                      <td><span class="badge badge-info">${this.escape(bName)}</span></td>
+                      <td><code>${this.escape(w.username)}</code></td>
+                      <td><span class="badge ${w.role === 'Admin' ? 'badge-info' : 'badge-neutral'}">${w.role}</span></td>
+                      <td>${this.escape(w.phone || '-')}</td>
+                      <td>
+                        <span class="badge ${w.active ? 'badge-success' : 'badge-danger'}">
+                          ${w.active ? 'Active' : 'Disabled'}
+                        </span>
+                      </td>
+                      <td>${State.formatDate(w.created_at)}</td>
+                      <td>
+                        <div style="display: flex; gap: 6px;">
+                          <button class="btn btn-sm btn-secondary" onclick="App.showEditWorkerModal('${w.id}')">
+                            Edit
                           </button>
-                        ` : ''}
-                      </div>
-                    </td>
-                  </tr>
-                `).join('')}
+                          ${w.username !== 'admin' && String(w.id) !== String(State.currentUser?.id) ? `
+                            <button class="btn btn-sm btn-danger" onclick="App.deleteWorkerAction('${w.id}')">
+                              Delete
+                            </button>
+                          ` : ''}
+                        </div>
+                      </td>
+                    </tr>
+                  `;
+                }).join('')}
               </tbody>
             </table>
           </div>
@@ -2632,23 +2754,45 @@ const App = {
     this.renderWorkers(document.getElementById('content-area'));
   },
 
-  showNewWorkerModal() {
+  async showNewWorkerModal() {
+    const branches = State.getBranches();
     const modal = document.getElementById('general-modal');
     document.getElementById('general-modal-title').textContent = 'Add New Worker / Staff Member';
     document.getElementById('general-modal-body').innerHTML = `
       <form id="new-worker-form" onsubmit="App.submitNewWorker(event)">
         <div class="form-group">
-          <label class="form-label">Full Name</label>
-          <input type="text" id="w-name" class="form-input" placeholder="e.g. John Mwangi" required>
+          <label class="form-label">Full Name *</label>
+          <input type="text" id="w-name" class="form-input" placeholder="e.g. Baraka John Mussa" required>
         </div>
 
         <div class="form-row">
           <div class="form-group">
-            <label class="form-label">Username (for Login)</label>
-            <input type="text" id="w-user" class="form-input" placeholder="e.g. jmwangi" required>
+            <label class="form-label">National ID (NIDA Number)</label>
+            <input type="text" id="w-nida" class="form-input" placeholder="e.g. 19900101-12345-00001-20">
           </div>
           <div class="form-group">
-            <label class="form-label">Assigned Role</label>
+            <label class="form-label">Physical Address / Residence</label>
+            <input type="text" id="w-address" class="form-input" placeholder="e.g. Sakina, Arusha">
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Username (for Login) *</label>
+            <input type="text" id="w-user" class="form-input" placeholder="e.g. baraka" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Assigned Shop / Branch</label>
+            <select id="w-branch" class="form-select">
+              <option value="">All / Floating Staff</option>
+              ${branches.map(b => `<option value="${b.id}">${this.escape(b.name)} (${this.escape(b.code || 'Shop')})</option>`).join('')}
+            </select>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Assigned Role *</label>
             <select id="w-role" class="form-select" required>
               <option value="Cashier">Cashier (POS & Sales)</option>
               <option value="Storekeeper">Storekeeper (Inventory & Receiving)</option>
@@ -2657,17 +2801,15 @@ const App = {
               <option value="Admin">Admin (Full System Access)</option>
             </select>
           </div>
-        </div>
-
-        <div class="form-row">
           <div class="form-group">
-            <label class="form-label">Phone Number</label>
+            <label class="form-label">Phone Number *</label>
             <input type="text" id="w-phone" class="form-input" placeholder="07xxxxxxxx" required>
           </div>
-          <div class="form-group">
-            <label class="form-label">Login Password / PIN</label>
-            <input type="password" id="w-pass" class="form-input" placeholder="Minimum 6 characters" required>
-          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Login Password / PIN *</label>
+          <input type="password" id="w-pass" class="form-input" placeholder="Minimum 6 characters" required>
         </div>
 
         <button type="submit" class="btn btn-primary" style="width: 100%;">Create Worker Profile</button>
@@ -2679,6 +2821,9 @@ const App = {
   async submitNewWorker(e) {
     e.preventDefault();
     const name = document.getElementById('w-name').value.trim();
+    const nationalId = document.getElementById('w-nida').value.trim();
+    const address = document.getElementById('w-address').value.trim();
+    const branchId = document.getElementById('w-branch').value;
     const username = document.getElementById('w-user').value.trim();
     const role = document.getElementById('w-role').value;
     const phone = document.getElementById('w-phone').value.trim();
@@ -2687,6 +2832,9 @@ const App = {
     try {
       const res = await API.addWorker({
         full_name: name,
+        national_id: nationalId,
+        address: address,
+        branch_id: branchId,
         username: username,
         role: role,
         phone: phone,
@@ -2703,20 +2851,39 @@ const App = {
   },
 
   async showEditWorkerModal(workerId) {
-    const res = await API.getWorkers();
-    const w = (res.workers || []).find(x => String(x.id) === String(workerId));
+    const [wRes, bRes] = await Promise.all([API.getWorkers(), API.getBranches()]);
+    const w = (wRes.workers || []).find(x => String(x.id) === String(workerId));
     if (!w) return;
+    const branches = bRes.branches || [];
 
     const modal = document.getElementById('general-modal');
     document.getElementById('general-modal-title').textContent = `Edit Worker: ${w.full_name}`;
     document.getElementById('general-modal-body').innerHTML = `
       <form id="edit-worker-form" onsubmit="App.submitEditWorker(event, '${w.id}')">
         <div class="form-group">
-          <label class="form-label">Full Name</label>
-          <input type="text" id="ew-name" class="form-input" value="${w.full_name}" required>
+          <label class="form-label">Full Name *</label>
+          <input type="text" id="ew-name" class="form-input" value="${this.escape(w.full_name)}" required>
         </div>
 
         <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">National ID (NIDA)</label>
+            <input type="text" id="ew-nida" class="form-input" value="${this.escape(w.national_id || '')}" placeholder="NIDA Number">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Physical Address</label>
+            <input type="text" id="ew-address" class="form-input" value="${this.escape(w.address || '')}" placeholder="Residence address">
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Assigned Shop / Branch</label>
+            <select id="ew-branch" class="form-select">
+              <option value="">All / Floating Staff</option>
+              ${branches.map(b => `<option value="${b.id}" ${w.branch_id === b.id ? 'selected' : ''}>${this.escape(b.name)}</option>`).join('')}
+            </select>
+          </div>
           <div class="form-group">
             <label class="form-label">Role</label>
             <select id="ew-role" class="form-select" required>
@@ -2727,15 +2894,17 @@ const App = {
               <option value="Admin" ${w.role === 'Admin' ? 'selected' : ''}>Admin</option>
             </select>
           </div>
-          <div class="form-group">
-            <label class="form-label">Phone</label>
-            <input type="text" id="ew-phone" class="form-input" value="${w.phone || ''}">
-          </div>
         </div>
 
-        <div class="form-group">
-          <label class="form-label">Reset Password / PIN (Leave blank to keep unchanged)</label>
-          <input type="password" id="ew-pass" class="form-input" placeholder="New password if resetting">
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Phone</label>
+            <input type="text" id="ew-phone" class="form-input" value="${this.escape(w.phone || '')}">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Reset Password / PIN (Leave blank to keep unchanged)</label>
+            <input type="password" id="ew-pass" class="form-input" placeholder="New password if resetting">
+          </div>
         </div>
 
         <div class="form-group">
@@ -2754,6 +2923,9 @@ const App = {
   async submitEditWorker(e, workerId) {
     e.preventDefault();
     const name = document.getElementById('ew-name').value.trim();
+    const nationalId = document.getElementById('ew-nida').value.trim();
+    const address = document.getElementById('ew-address').value.trim();
+    const branchId = document.getElementById('ew-branch').value;
     const role = document.getElementById('ew-role').value;
     const phone = document.getElementById('ew-phone').value.trim();
     const password = document.getElementById('ew-pass').value.trim();
@@ -2762,6 +2934,9 @@ const App = {
     try {
       const res = await API.updateWorker(workerId, {
         full_name: name,
+        national_id: nationalId,
+        address: address,
+        branch_id: branchId,
         role: role,
         phone: phone,
         password: password,
@@ -4176,6 +4351,491 @@ Corrugated Iron Sheets Gauge 28,Roofing,SHT-G28,012345678905,31000,38000,80,shee
       }
     } catch (err) {
       State.showToast(err.message || 'Failed to delete capital entry', 'error');
+    }
+  },
+
+  // -------------------------------------------------------------
+  // STOCK AUDIT & REMOVAL / DELETION ACTIONS
+  // -------------------------------------------------------------
+  async deleteStockMovementAction(id) {
+    if (!confirm('Are you sure you want to delete this recorded stock entry? The product stock quantity balance will automatically be reversed.')) return;
+    try {
+      const res = await API.deleteStockMovement(id);
+      if (res && res.success) {
+        State.showToast('Recorded stock entry deleted and inventory balance restored', 'success');
+        await this.showStockMovementsModal();
+        if (State.currentView === 'inventory') {
+          this.renderInventory(document.getElementById('content-area'));
+        }
+      }
+    } catch (err) {
+      State.showToast(err.message || 'Failed to delete stock movement', 'error');
+    }
+  },
+
+  async clearStockAction(productId) {
+    const p = (this.productsCache || []).find(x => String(x.id) === String(productId));
+    const name = p ? p.name : 'this item';
+    if (!confirm(`Are you sure you want to CLEAR and reset recorded stock for "${name}" to ZERO (0)? This action will be logged in the audit trail.`)) return;
+    try {
+      const res = await API.clearProductStock(productId);
+      if (res && res.success) {
+        State.showToast(`Stock for ${name} has been reset to 0`, 'success');
+        const modal = document.getElementById('general-modal');
+        if (modal && modal.classList.contains('active')) {
+          modal.classList.remove('active');
+        }
+        if (State.currentView === 'inventory') {
+          this.renderInventory(document.getElementById('content-area'));
+        }
+      }
+    } catch (err) {
+      State.showToast(err.message || 'Failed to clear product stock', 'error');
+    }
+  },
+
+  // -------------------------------------------------------------
+  // USER PROFILE SELF-MANAGEMENT
+  // -------------------------------------------------------------
+  showMyProfileModal() {
+    const user = State.currentUser;
+    if (!user) return;
+    const branches = State.getBranches();
+    const branchMap = {};
+    branches.forEach(b => { branchMap[b.id] = b.name; });
+    const bName = branchMap[user.branch_id] || 'All Shops / Floating';
+
+    const modal = document.getElementById('general-modal');
+    document.getElementById('general-modal-title').textContent = 'My Worker Profile & Security';
+    document.getElementById('general-modal-body').innerHTML = `
+      <form id="my-profile-form" onsubmit="App.submitMyProfile(event)">
+        <div style="display: flex; align-items: center; gap: 20px; background: #f8fafc; padding: 16px; border-radius: 8px; margin-bottom: 20px; border: 1px solid var(--border); flex-wrap: wrap;">
+          <div id="profile-photo-preview-wrap">
+            ${user.photo_url 
+              ? `<img id="profile-photo-preview" src="${user.photo_url}" class="worker-table-avatar" style="width: 80px; height: 80px; border-radius: 50%; object-fit: cover; border: 3px solid var(--primary);" alt="Avatar">`
+              : `<div id="profile-photo-preview" class="worker-table-avatar" style="width: 80px; height: 80px; border-radius: 50%; background: #e2e8f0; display: flex; align-items: center; justify-content: center; font-size: 28px; font-weight: bold; color: #475569; border: 3px solid var(--primary);">${(user.full_name || user.username || 'U').charAt(0).toUpperCase()}</div>`
+            }
+          </div>
+          <div style="flex: 1; min-width: 220px;">
+            <label class="form-label" style="margin-bottom: 4px; font-weight: 700;">Profile Photo / Badge</label>
+            <input type="file" id="profile-photo-input" class="form-input" accept="image/*" onchange="App.handleProfilePhotoSelect(event)" style="padding: 6px;">
+            <input type="hidden" id="profile-photo-base64" value="${user.photo_url || ''}">
+            <div style="font-size: 11px; color: var(--text-muted); margin-top: 4px;">Attach your photo so admin can identify who is on duty.</div>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Full Name *</label>
+            <input type="text" id="my-fullname" class="form-input" value="${this.escape(user.full_name || '')}" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Phone Number *</label>
+            <input type="text" id="my-phone" class="form-input" value="${this.escape(user.phone || '')}" required>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">National ID (NIDA) *</label>
+            <input type="text" id="my-nida" class="form-input" value="${this.escape(user.national_id || '')}" placeholder="e.g. 19900101-12345-00001-20" required>
+            <div style="font-size: 11px; color: var(--text-muted);">Required for official duty audit logs</div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Physical Address / Residence *</label>
+            <input type="text" id="my-address" class="form-input" value="${this.escape(user.address || '')}" placeholder="e.g. Sakina, Arusha" required>
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">System Role</label>
+            <input type="text" class="form-input" value="${this.escape(user.role)}" disabled style="background: #f1f5f9;">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Assigned Shop</label>
+            <input type="text" class="form-input" value="${this.escape(bName)}" disabled style="background: #f1f5f9;">
+          </div>
+        </div>
+
+        <div class="form-group" style="margin-top: 10px; padding-top: 10px; border-top: 1px dashed var(--border);">
+          <label class="form-label">Change Password / PIN (Leave empty to keep current password)</label>
+          <input type="password" id="my-new-pass" class="form-input" placeholder="New login password or PIN">
+        </div>
+
+        <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 16px; padding: 12px; font-weight: 700;">
+          Save Profile Information
+        </button>
+      </form>
+    `;
+    modal.classList.add('active');
+  },
+
+  handleProfilePhotoSelect(event) {
+    const file = event.target.files && event.target.files[0];
+    if (!file) return;
+
+    if (file.size > 2 * 1024 * 1024) {
+      State.showToast('Image size exceeds 2MB limit. Please choose a smaller photo.', 'error');
+      return;
+    }
+
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const dataUrl = e.target.result;
+      document.getElementById('profile-photo-base64').value = dataUrl;
+      const previewWrap = document.getElementById('profile-photo-preview-wrap');
+      if (previewWrap) {
+        previewWrap.innerHTML = `<img id="profile-photo-preview" src="${dataUrl}" class="worker-table-avatar" style="width: 80px; height: 80px; border-radius: 50%; object-fit: cover; border: 3px solid var(--primary);" alt="Avatar">`;
+      }
+    };
+    reader.readAsDataURL(file);
+  },
+
+  async submitMyProfile(e) {
+    e.preventDefault();
+    const user = State.currentUser;
+    if (!user) return;
+
+    const fullName = document.getElementById('my-fullname').value.trim();
+    const phone = document.getElementById('my-phone').value.trim();
+    const nationalId = document.getElementById('my-nida').value.trim();
+    const address = document.getElementById('my-address').value.trim();
+    const photoUrl = document.getElementById('profile-photo-base64').value;
+    const newPass = document.getElementById('my-new-pass').value.trim();
+
+    try {
+      const payload = {
+        full_name: fullName,
+        phone: phone,
+        national_id: nationalId,
+        address: address,
+        photo_url: photoUrl
+      };
+      if (newPass) {
+        payload.password = newPass;
+      }
+
+      const res = await API.updateProfile(user.id, payload);
+      if (res && res.success) {
+        State.showToast('Profile updated successfully!', 'success');
+        document.getElementById('general-modal').classList.remove('active');
+        this.updateShiftUI();
+        if (State.currentView === 'workers') {
+          this.renderWorkers(document.getElementById('content-area'));
+        }
+      }
+    } catch (err) {
+      State.showToast(err.message || 'Failed to update profile', 'error');
+    }
+  },
+
+  // -------------------------------------------------------------
+  // MULTI-BRANCH (MULTIPLE SHOPS) MANAGEMENT & SWITCHING
+  // -------------------------------------------------------------
+  onBranchChange(branchId) {
+    State.setCurrentBranch(branchId);
+    this.updateBranchSelectorUI();
+    State.showToast(`Switched shop context to: ${State.getCurrentBranchName()}`, 'info');
+    this.navigate(State.currentView);
+  },
+
+  showManageBranchesModal() {
+    this.navigate('branches');
+  },
+
+  async renderBranches(container) {
+    container.innerHTML = `<div style="text-align: center; padding: 40px;"><div class="spinner"></div> Loading Shops & Branches...</div>`;
+
+    try {
+      const res = await API.getBranches();
+      const branches = res.branches || [];
+      State.setBranches(branches);
+
+      // Fetch consolidated and branch-specific summaries
+      const branchStats = await Promise.all(branches.map(async b => {
+        try {
+          const cap = await API.getCapital(b.id);
+          const rep = await API.getDailyReport(new Date().toISOString().split('T')[0], b.id);
+          const todayOrders = rep.orders || [];
+          const todaySales = todayOrders.reduce((sum, o) => sum + (parseFloat(o.total_amount) || 0), 0);
+          return {
+            ...b,
+            inventory_value: cap.stock_inventory_value || 0,
+            active_products: cap.products_count || 0,
+            today_sales: todaySales
+          };
+        } catch (err) {
+          return { ...b, inventory_value: 0, active_products: 0, today_sales: 0 };
+        }
+      }));
+
+      container.innerHTML = `
+        <div class="card" style="border-top: 4px solid var(--primary);">
+          <div class="card-header">
+            <div>
+              <h3 class="card-title">
+                <svg width="20" height="20" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"></path></svg>
+                Multi-Branch & Multiple Shops Management
+              </h3>
+              <p style="font-size: 12px; color: var(--text-muted);">
+                Each shop operates with separate stock, cash balances, sales, expenses, and staff records without error or collision.
+              </p>
+            </div>
+            <button class="btn btn-primary" onclick="App.showNewBranchModal()">+ Add Another Shop / Branch</button>
+          </div>
+
+          <div style="background: #eff6ff; border: 1px solid #bfdbfe; border-radius: 8px; padding: 14px 18px; margin-bottom: 20px; display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 12px;">
+            <div>
+              <span style="font-size: 12px; color: #1e40af; font-weight: 600; text-transform: uppercase;">Active Shop Working View</span>
+              <div style="font-size: 18px; font-weight: 800; color: #1e3a8a;">${State.getCurrentBranchName()}</div>
+            </div>
+            <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+              <button class="btn btn-sm ${State.currentBranch === 'all' ? 'btn-primary' : 'btn-secondary'}" onclick="App.onBranchChange('all')">
+                All Shops Consolidated
+              </button>
+              ${branches.map(b => `
+                <button class="btn btn-sm ${State.currentBranch === b.id ? 'btn-primary' : 'btn-secondary'}" onclick="App.onBranchChange('${b.id}')">
+                  ${this.escape(b.name)}
+                </button>
+              `).join('')}
+            </div>
+          </div>
+
+          <div class="metrics-grid" style="margin-bottom: 24px;">
+            <div class="metric-card">
+              <div class="metric-title">Registered Branches</div>
+              <div class="metric-value" style="color: var(--primary);">${branches.length} Shops</div>
+              <div class="metric-subtitle">Fully isolated operations</div>
+            </div>
+            <div class="metric-card">
+              <div class="metric-title">Total Combined Stock Value</div>
+              <div class="metric-value" style="color: var(--success);">${State.formatMoney(branchStats.reduce((s, b) => s + b.inventory_value, 0))}</div>
+              <div class="metric-subtitle">Across all branches</div>
+            </div>
+            <div class="metric-card">
+              <div class="metric-title">Total Today's Sales</div>
+              <div class="metric-value" style="color: #2563eb;">${State.formatMoney(branchStats.reduce((s, b) => s + b.today_sales, 0))}</div>
+              <div class="metric-subtitle">Today's consolidated turnover</div>
+            </div>
+          </div>
+
+          <div class="table-container">
+            <table class="data-table">
+              <thead>
+                <tr>
+                  <th>Shop / Branch Name</th>
+                  <th>Branch Code</th>
+                  <th>Location / Address</th>
+                  <th>Contact Phone</th>
+                  <th>Manager In-Charge</th>
+                  <th>Active Products</th>
+                  <th>Stock Valuation</th>
+                  <th>Today's Sales</th>
+                  <th>Status</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${branchStats.map(b => `
+                  <tr style="${State.currentBranch === b.id ? 'background: #f0fdf4;' : ''}">
+                    <td>
+                      <strong>${this.escape(b.name)}</strong>
+                      ${b.is_default ? '<span class="badge badge-info" style="margin-left: 6px;">Headquarters</span>' : ''}
+                      ${State.currentBranch === b.id ? '<span class="badge badge-success" style="margin-left: 6px;">Active Context</span>' : ''}
+                    </td>
+                    <td><code>${this.escape(b.code || 'SHOP')}</code></td>
+                    <td>${this.escape(b.location || '-')}</td>
+                    <td>${this.escape(b.phone || '-')}</td>
+                    <td><strong>${this.escape(b.manager_name || 'Owner / Admin')}</strong></td>
+                    <td><strong>${b.active_products}</strong> items</td>
+                    <td style="font-weight: 700; color: var(--success);">${State.formatMoney(b.inventory_value)}</td>
+                    <td style="font-weight: 700; color: #2563eb;">${State.formatMoney(b.today_sales)}</td>
+                    <td>
+                      <span class="badge ${b.active !== false ? 'badge-success' : 'badge-danger'}">
+                        ${b.active !== false ? 'Operating' : 'Suspended'}
+                      </span>
+                    </td>
+                    <td>
+                      <div style="display: flex; gap: 6px;">
+                        <button class="btn btn-sm btn-secondary" onclick="App.onBranchChange('${b.id}')" title="Switch to this shop">
+                          Switch
+                        </button>
+                        <button class="btn btn-sm btn-secondary" onclick="App.showEditBranchModal('${b.id}')">
+                          Edit
+                        </button>
+                        ${!b.is_default ? `
+                          <button class="btn btn-sm btn-danger" onclick="App.deleteBranchAction('${b.id}')">
+                            Delete
+                          </button>
+                        ` : ''}
+                      </div>
+                    </td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      `;
+    } catch (e) {
+      container.innerHTML = `<div class="card" style="color: var(--danger);">Error loading branches: ${e.message}</div>`;
+    }
+  },
+
+  showNewBranchModal() {
+    const modal = document.getElementById('general-modal');
+    document.getElementById('general-modal-title').textContent = 'Add New Shop / Branch';
+    document.getElementById('general-modal-body').innerHTML = `
+      <form id="new-branch-form" onsubmit="App.submitNewBranch(event)">
+        <div class="form-group">
+          <label class="form-label">Branch / Shop Name *</label>
+          <input type="text" id="nb-name" class="form-input" placeholder="e.g. Branch 2 - Moshi Central" required>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Branch Code / Short Tag *</label>
+            <input type="text" id="nb-code" class="form-input" placeholder="e.g. MOSHI-01" required>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Phone Contact</label>
+            <input type="text" id="nb-phone" class="form-input" placeholder="07xxxxxxxx">
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Physical Location / Town / Address *</label>
+          <input type="text" id="nb-location" class="form-input" placeholder="e.g. Boma Road, Moshi Kilimanjaro" required>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Manager / Supervisor In-Charge</label>
+          <input type="text" id="nb-manager" class="form-input" placeholder="e.g. Baraka John">
+        </div>
+
+        <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 14px;">Create Shop & Initialize Database</button>
+      </form>
+    `;
+    modal.classList.add('active');
+  },
+
+  async submitNewBranch(e) {
+    e.preventDefault();
+    const name = document.getElementById('nb-name').value.trim();
+    const code = document.getElementById('nb-code').value.trim();
+    const phone = document.getElementById('nb-phone').value.trim();
+    const location = document.getElementById('nb-location').value.trim();
+    const manager = document.getElementById('nb-manager').value.trim();
+
+    try {
+      const res = await API.addBranch({
+        name: name,
+        code: code,
+        phone: phone,
+        location: location,
+        manager_name: manager,
+        active: true
+      });
+      if (res && res.success) {
+        State.showToast(`Branch "${name}" created successfully!`, 'success');
+        document.getElementById('general-modal').classList.remove('active');
+        this.updateBranchSelectorUI();
+        if (State.currentView === 'branches') {
+          this.renderBranches(document.getElementById('content-area'));
+        }
+      }
+    } catch (err) {
+      State.showToast(err.message || 'Failed to create branch', 'error');
+    }
+  },
+
+  async showEditBranchModal(branchId) {
+    const res = await API.getBranches();
+    const b = (res.branches || []).find(x => String(x.id) === String(branchId));
+    if (!b) return;
+
+    const modal = document.getElementById('general-modal');
+    document.getElementById('general-modal-title').textContent = `Edit Shop: ${b.name}`;
+    document.getElementById('general-modal-body').innerHTML = `
+      <form id="edit-branch-form" onsubmit="App.submitEditBranch(event, '${b.id}')">
+        <div class="form-group">
+          <label class="form-label">Branch / Shop Name *</label>
+          <input type="text" id="eb-name" class="form-input" value="${this.escape(b.name)}" required>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Branch Code</label>
+            <input type="text" id="eb-code" class="form-input" value="${this.escape(b.code || '')}">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Phone Contact</label>
+            <input type="text" id="eb-phone" class="form-input" value="${this.escape(b.phone || '')}">
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Location / Address</label>
+          <input type="text" id="eb-location" class="form-input" value="${this.escape(b.location || '')}">
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Manager In-Charge</label>
+          <input type="text" id="eb-manager" class="form-input" value="${this.escape(b.manager_name || '')}">
+        </div>
+
+        <button type="submit" class="btn btn-primary" style="width: 100%; margin-top: 14px;">Save Shop Details</button>
+      </form>
+    `;
+    modal.classList.add('active');
+  },
+
+  async submitEditBranch(e, branchId) {
+    e.preventDefault();
+    const name = document.getElementById('eb-name').value.trim();
+    const code = document.getElementById('eb-code').value.trim();
+    const phone = document.getElementById('eb-phone').value.trim();
+    const location = document.getElementById('eb-location').value.trim();
+    const manager = document.getElementById('eb-manager').value.trim();
+
+    try {
+      const res = await API.updateBranch(branchId, {
+        name: name,
+        code: code,
+        phone: phone,
+        location: location,
+        manager_name: manager
+      });
+      if (res && res.success) {
+        State.showToast('Shop details updated successfully', 'success');
+        document.getElementById('general-modal').classList.remove('active');
+        this.updateBranchSelectorUI();
+        if (State.currentView === 'branches') {
+          this.renderBranches(document.getElementById('content-area'));
+        }
+      }
+    } catch (err) {
+      State.showToast(err.message || 'Failed to update branch', 'error');
+    }
+  },
+
+  async deleteBranchAction(branchId) {
+    if (!confirm('Are you sure you want to delete this shop / branch? All separate records associated with this branch will be removed.')) return;
+    try {
+      const res = await API.deleteBranch(branchId);
+      if (res && res.success) {
+        State.showToast('Shop branch removed', 'success');
+        if (State.currentBranch === branchId) {
+          State.setCurrentBranch('branch-main');
+        }
+        this.updateBranchSelectorUI();
+        if (State.currentView === 'branches') {
+          this.renderBranches(document.getElementById('content-area'));
+        }
+      }
+    } catch (err) {
+      State.showToast(err.message || 'Failed to delete branch', 'error');
     }
   }
 };

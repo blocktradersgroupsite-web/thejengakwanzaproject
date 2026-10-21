@@ -4,6 +4,8 @@ const State = {
   activeShift: null,
   currentRoute: 'dashboard',
   settings: {},
+  branches: [],
+  currentBranch: localStorage.getItem('jengakwanza_current_branch') || 'all',
   cart: [],
   cartCustomer: null,
   selectedReportDate: new Date().toISOString().split('T')[0],
@@ -18,6 +20,10 @@ const State = {
         localStorage.removeItem('jengakwanza_auth_user');
       }
     }
+    const savedBranch = localStorage.getItem('jengakwanza_current_branch');
+    if (savedBranch) {
+      this.currentBranch = savedBranch;
+    }
   },
 
   setUser(user) {
@@ -28,6 +34,26 @@ const State = {
       localStorage.removeItem('jengakwanza_auth_user');
       this.activeShift = null;
     }
+  },
+
+  setBranches(branches) {
+    this.branches = Array.isArray(branches) ? branches : [];
+  },
+
+  setCurrentBranch(branchId) {
+    this.currentBranch = branchId || 'all';
+    localStorage.setItem('jengakwanza_current_branch', this.currentBranch);
+  },
+
+  getCurrentBranch() {
+    if (!this.currentBranch || this.currentBranch === 'all') return null;
+    return this.branches.find(b => String(b.id) === String(this.currentBranch)) || null;
+  },
+
+  getCurrentBranchName() {
+    if (!this.currentBranch || this.currentBranch === 'all') return 'All Branches (Consolidated)';
+    const b = this.branches.find(x => String(x.id) === String(this.currentBranch));
+    return b ? b.name : 'Main Shop';
   },
 
   setSettings(settings) {

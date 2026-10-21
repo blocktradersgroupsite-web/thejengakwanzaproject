@@ -60,7 +60,7 @@ const FirebaseAdapter = {
   // CACHE & STORAGE SUBSYSTEM
   // -------------------------------------------------------------
   loadAllCaches() {
-    const collections = ['settings', 'users', 'products', 'customers', 'orders', 'expenses', 'work_shifts', 'delivery_notes', 'purchase_orders', 'debtor_payments', 'capital_ledger', 'stock_movements'];
+    const collections = ['settings', 'users', 'products', 'customers', 'orders', 'expenses', 'work_shifts', 'delivery_notes', 'purchase_orders', 'debtor_payments', 'capital_ledger', 'stock_movements', 'branches'];
     collections.forEach(col => {
       try {
         const stored = localStorage.getItem(this.CACHE_PREFIX + col);
@@ -90,6 +90,20 @@ const FirebaseAdapter = {
         mobile_money_balance: 0.0
       };
       this.setCache('settings', this.memoryCache.settings);
+    }
+
+    // Default primary branch if none cached
+    if (!this.memoryCache.branches || Object.keys(this.memoryCache.branches).length === 0) {
+      const defaultBranch = {
+        id: 'branch-main',
+        name: 'Main Shop - Arusha',
+        location: 'P.O.BOX 14991 Arusha',
+        phone: '0788989889 / 0713550104',
+        is_default: true,
+        created_at: new Date().toISOString()
+      };
+      this.memoryCache.branches = { 'branch-main': defaultBranch };
+      this.setCache('branches', this.memoryCache.branches);
     }
   },
 
@@ -261,7 +275,78 @@ const FirebaseAdapter = {
   },
 
   // -------------------------------------------------------------
-  // 2. WORKERS
+  // 1B. BRANCHES & MULTI-SHOPPING SUBSYSTEM
+  // -------------------------------------------------------------
+  async getBranches() {
+    const cached = this.getCache('branches');
+    let branches = [];
+    if (cached) {
+      branches = Array.isArray(cached) ? cached : Object.keys(cached).map(k => ({ id: k, ...cached[k] }));
+    }
+
+    if (navigator.onLine) {
+      this.rawFetch('branches', 'GET', null, 2500).then(raw => {
+        if (raw) this.setCache('branches', raw);
+      }).catch(() => {});
+    }
+
+    if (branches.length === 0) {
+      branches = [{
+        id: 'branch-main',
+        name: 'Main Shop - Arusha',
+        location: 'P.O.BOX 14991 Arusha',
+        phone: '0788989889 / 0713550104',
+        is_default: true,
+        created_at: new Date().toISOString()
+      }];
+      this.setCache('branches', { 'branch-main': branches[0] });
+    }
+    return { success: true, branches };
+  },
+
+  async addBranch(data) {
+    const id = 'branch-' + Date.now().toString();
+    const branch = {
+      id,
+      name: data.name || 'New Shop Branch',
+      location: data.location || '',
+      phone: data.phone || '',
+      manager: data.manager || '',
+      is_default: false,
+      created_at: new Date().toISOString()
+    };
+
+    const current = this.getCache('branches') || {};
+    current[id] = branch;
+    this.setCache('branches', current);
+
+    await this.rtdb(`branches/${id}`, 'PUT', branch);
+    return { success: true, branch };
+  },
+
+  async updateBranch(id, data) {
+    const current = this.getCache('branches') || {};
+    if (current[id]) {
+      current[id] = { ...current[id], ...data };
+      this.setCache('branches', current);
+    }
+    await this.rtdb(`branches/${id}`, 'PATCH', data);
+    return { success: true };
+  },
+
+  async deleteBranch(id) {
+    if (id === 'branch-main') {
+      throw new Error('The default Main Branch cannot be deleted.');
+    }
+    const current = this.getCache('branches') || {};
+    delete current[id];
+    this.setCache('branches', current);
+    await this.rtdb(`branches/${id}`, 'DELETE');
+    return { success: true };
+  },
+
+  // -------------------------------------------------------------
+  // 2. WORKERS & USER PROFILES
   // -------------------------------------------------------------
   async getWorkers() {
     const cached = this.getCache('users');
@@ -327,6 +412,31 @@ const FirebaseAdapter = {
     }
     await this.rtdb(`users/${id}`, 'PATCH', data);
     return { success: true };
+  },
+
+  async updateProfile(userId, data) {
+    const current = this.getCache('users') || {};
+    const u = current[userId];
+    if (!u) throw new Error('Worker profile not found');
+
+    const updateFields = {
+      full_name: data.full_name !== undefined ? data.full_name : u.full_name,
+      phone: data.phone !== undefined ? data.phone : u.phone,
+      address: data.address !== undefined ? data.address : (u.address || ''),
+      national_id: data.national_id !== undefined ? data.national_id : (u.national_id || ''),
+      photo_url: data.photo_url !== undefined ? data.photo_url : (u.photo_url || ''),
+      updated_at: new Date().toISOString()
+    };
+    if (data.branch_id !== undefined) updateFields.branch_id = data.branch_id;
+    if (data.password && data.password.trim()) {
+      updateFields.pin_hash = data.password.trim();
+      updateFields.password = data.password.trim();
+    }
+
+    current[userId] = { ...u, ...updateFields };
+    this.setCache('users', current);
+    await this.rtdb(`users/${userId}`, 'PATCH', updateFields);
+    return { success: true, user: current[userId] };
   },
 
   async deleteWorker(id) {
@@ -413,7 +523,7 @@ const FirebaseAdapter = {
   // -------------------------------------------------------------
   // 4. PRODUCTS & INVENTORY
   // -------------------------------------------------------------
-  async getProducts() {
+  async getProducts(branchId) {
     let cached = this.getCache('products');
     let products = [];
     if (cached) {
@@ -440,19 +550,27 @@ const FirebaseAdapter = {
     products = products.map((p, idx) => ({
       ...p,
       id: String(p.id !== undefined && p.id !== null ? p.id : `prod_${idx}`),
+      branch_id: p.branch_id || 'branch-main',
       stock_quantity: parseFloat(p.stock_quantity || 0),
       selling_price: parseFloat(p.selling_price || 0),
       cost_price: parseFloat(p.cost_price || 0)
     }));
+
+    const bId = branchId !== undefined ? branchId : (window.State && window.State.currentBranch);
+    if (bId && bId !== 'all') {
+      products = products.filter(p => p.branch_id === bId || (!p.branch_id && bId === 'branch-main'));
+    }
 
     return { success: true, products };
   },
 
   async addProduct(data) {
     const id = Date.now().toString();
+    const activeBranch = data.branch_id || (window.State && window.State.currentBranch && window.State.currentBranch !== 'all' ? window.State.currentBranch : 'branch-main');
     const prod = {
       id,
       ...data,
+      branch_id: activeBranch,
       stock_quantity: parseFloat(data.stock_quantity || 0),
       cost_price: parseFloat(data.cost_price || 0),
       selling_price: parseFloat(data.selling_price || 0),
@@ -475,6 +593,7 @@ const FirebaseAdapter = {
         id: mId,
         product_id: id,
         product_name: data.name,
+        branch_id: activeBranch,
         movement_type: 'INITIAL_STOCK',
         quantity: prod.stock_quantity,
         balance_after: prod.stock_quantity,
@@ -626,6 +745,65 @@ const FirebaseAdapter = {
     return { success: true, movements: movs.slice(0, limitNum) };
   },
 
+  async deleteStockMovement(id) {
+    const currentMovs = this.getCache('stock_movements') || {};
+    const mov = currentMovs[id];
+    if (!mov) throw new Error('Stock movement record not found');
+
+    const currentProds = this.getCache('products') || {};
+    const prod = currentProds[mov.product_id];
+    let newQty = 0;
+    if (prod) {
+      const prevQty = parseFloat(prod.stock_quantity || 0);
+      const movedQty = parseFloat(mov.quantity || 0);
+      // Reverse: if movement added stock, subtract it. If movement deducted, add it back.
+      newQty = Math.max(0, prevQty - movedQty);
+      prod.stock_quantity = newQty;
+      currentProds[mov.product_id] = prod;
+      this.setCache('products', currentProds);
+      await this.rtdb(`products/${mov.product_id}`, 'PATCH', { stock_quantity: newQty });
+    }
+
+    delete currentMovs[id];
+    this.setCache('stock_movements', currentMovs);
+    await this.rtdb(`stock_movements/${id}`, 'DELETE');
+
+    return { success: true, new_quantity: newQty };
+  },
+
+  async clearProductStock(productId, userId) {
+    const currentProds = this.getCache('products') || {};
+    const prod = currentProds[productId];
+    if (!prod) throw new Error('Product not found in inventory');
+
+    const prevQty = parseFloat(prod.stock_quantity || 0);
+    prod.stock_quantity = 0;
+    currentProds[productId] = prod;
+    this.setCache('products', currentProds);
+
+    const mId = Date.now().toString();
+    const mov = {
+      id: mId,
+      product_id: productId,
+      product_name: prod.name,
+      movement_type: 'CLEAR_RECORDED_STOCK',
+      quantity: -prevQty,
+      previous_quantity: prevQty,
+      balance_after: 0,
+      unit_cost: prod.cost_price || 0,
+      notes: 'Recorded stock cleared to 0',
+      user_id: userId || '',
+      created_at: new Date().toISOString()
+    };
+    const movs = this.getCache('stock_movements') || {};
+    movs[mId] = mov;
+    this.setCache('stock_movements', movs);
+
+    await this.rtdb(`products/${productId}`, 'PATCH', { stock_quantity: 0 });
+    await this.rtdb(`stock_movements/${mId}`, 'PUT', mov);
+    return { success: true };
+  },
+
   // -------------------------------------------------------------
   // 5. CUSTOMERS & DEBTORS
   // -------------------------------------------------------------
@@ -743,7 +921,7 @@ const FirebaseAdapter = {
   // -------------------------------------------------------------
   // 6. ORDERS & POINT OF SALE (POS)
   // -------------------------------------------------------------
-  async getOrders(type) {
+  async getOrders(type, branchId) {
     const cached = this.getCache('orders') || {};
     let orders = Object.keys(cached).map(k => ({ id: k, ...cached[k] }));
 
@@ -755,6 +933,10 @@ const FirebaseAdapter = {
 
     if (type) {
       orders = orders.filter(o => o.order_type === type);
+    }
+    const bId = branchId !== undefined ? branchId : (window.State && window.State.currentBranch);
+    if (bId && bId !== 'all') {
+      orders = orders.filter(o => o.branch_id === bId || (!o.branch_id && bId === 'branch-main'));
     }
     orders.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
     return { success: true, orders };
@@ -771,11 +953,13 @@ const FirebaseAdapter = {
     const id = Date.now().toString();
     const prefix = data.order_type === 'PROFORMA' ? 'PRF' : (data.order_type === 'INVOICE' ? 'INV' : 'ORD');
     const orderNumber = `${prefix}-${new Date().toISOString().slice(0, 10).replace(/-/g, '')}-${id.slice(-4)}`;
+    const activeBranch = data.branch_id || (window.State && window.State.currentBranch && window.State.currentBranch !== 'all' ? window.State.currentBranch : 'branch-main');
 
     const order = {
       id,
       order_number: orderNumber,
       order_type: data.order_type || 'POS',
+      branch_id: activeBranch,
       customer_id: data.customer_id || null,
       customer_name: data.customer_name || 'Walk-in Customer',
       customer_phone: data.customer_phone || '',
@@ -928,7 +1112,7 @@ const FirebaseAdapter = {
   // -------------------------------------------------------------
   // 8. EXPENSES
   // -------------------------------------------------------------
-  async getExpenses(date) {
+  async getExpenses(date, branchId) {
     const targetDate = date || new Date().toISOString().split('T')[0];
     const cached = this.getCache('expenses') || {};
     let expenses = Object.keys(cached).map(k => ({ id: k, ...cached[k] }));
@@ -939,15 +1123,21 @@ const FirebaseAdapter = {
       }).catch(() => {});
     }
 
-    const filtered = expenses.filter(e => (e.expense_date || '').startsWith(targetDate) || (e.created_at || '').startsWith(targetDate));
+    let filtered = expenses.filter(e => (e.expense_date || '').startsWith(targetDate) || (e.created_at || '').startsWith(targetDate));
+    const bId = branchId !== undefined ? branchId : (window.State && window.State.currentBranch);
+    if (bId && bId !== 'all') {
+      filtered = filtered.filter(e => e.branch_id === bId || (!e.branch_id && bId === 'branch-main'));
+    }
     return { success: true, expenses: filtered };
   },
 
   async createExpense(data) {
     const id = Date.now().toString();
+    const activeBranch = data.branch_id || (window.State && window.State.currentBranch && window.State.currentBranch !== 'all' ? window.State.currentBranch : 'branch-main');
     const exp = {
       id,
       voucher_number: `EXP-${id.slice(-6)}`,
+      branch_id: activeBranch,
       ...data,
       amount: parseFloat(data.amount || 0),
       expense_date: data.expense_date || new Date().toISOString().split('T')[0],
@@ -1067,14 +1257,21 @@ const FirebaseAdapter = {
   // -------------------------------------------------------------
   // 10. CAPITAL & FINANCIAL METRICS (INSTANT ZERO-LATENCY ENGINE)
   // -------------------------------------------------------------
-  async getCapital() {
+  async getCapital(branchId) {
+    const bId = branchId !== undefined ? branchId : (window.State && window.State.currentBranch);
     const settings = this.getCache('settings') || {};
     const prodsObj = this.getCache('products') || {};
-    const products = Object.values(prodsObj);
+    let products = Object.values(prodsObj);
     const custsObj = this.getCache('customers') || {};
-    const customers = Object.values(custsObj);
+    let customers = Object.values(custsObj);
     const ledgerObj = this.getCache('capital_ledger') || {};
-    const ledger = Object.values(ledgerObj);
+    let ledger = Object.values(ledgerObj);
+
+    // Filter strictly by branch if specific branch selected
+    if (bId && bId !== 'all') {
+      products = products.filter(p => p.branch_id === bId || (!p.branch_id && bId === 'branch-main'));
+      ledger = ledger.filter(l => l.branch_id === bId || (!l.branch_id && bId === 'branch-main'));
+    }
 
     // 1. Available Stock Valuation at Cost (Total money invested in available goods)
     let stock_cost_val = 0;
@@ -1145,8 +1342,10 @@ const FirebaseAdapter = {
 
   async recordCapitalAdjustment(data) {
     const id = Date.now().toString();
+    const activeBranch = data.branch_id || (window.State && window.State.currentBranch && window.State.currentBranch !== 'all' ? window.State.currentBranch : 'branch-main');
     const entry = {
       id,
+      branch_id: activeBranch,
       ...data,
       amount: parseFloat(data.amount || 0),
       created_at: new Date().toISOString()
@@ -1192,26 +1391,44 @@ const FirebaseAdapter = {
   // -------------------------------------------------------------
   // 11. REPORTS (INSTANT RENDERING)
   // -------------------------------------------------------------
-  async getDashboardReport() {
+  async getDashboardReport(branchId) {
+    const bId = branchId !== undefined ? branchId : (window.State && window.State.currentBranch);
     const today = new Date().toISOString().split('T')[0];
     const ordersObj = this.getCache('orders') || {};
-    const allOrders = Object.values(ordersObj);
+    let allOrders = Object.values(ordersObj);
+    if (bId && bId !== 'all') {
+      allOrders = allOrders.filter(o => o.branch_id === bId || (!o.branch_id && bId === 'branch-main'));
+    }
     const todayOrders = allOrders.filter(o => o.order_type !== 'PROFORMA' && (o.created_at || '').startsWith(today));
 
     let todaySales = 0;
     todayOrders.forEach(o => { todaySales += parseFloat(o.total || 0); });
 
     const expensesObj = this.getCache('expenses') || {};
-    const allExpenses = Object.values(expensesObj);
+    let allExpenses = Object.values(expensesObj);
+    if (bId && bId !== 'all') {
+      allExpenses = allExpenses.filter(e => e.branch_id === bId || (!e.branch_id && bId === 'branch-main'));
+    }
     const todayExpenses = allExpenses.filter(e => (e.expense_date || '').startsWith(today) || (e.created_at || '').startsWith(today));
 
     let todayExpTotal = 0;
     todayExpenses.forEach(e => { todayExpTotal += parseFloat(e.amount || 0); });
 
-    const capRes = await this.getCapital();
+    const capRes = await this.getCapital(bId);
     const cap = (capRes && capRes.capital) || {};
-    const prodsObj = this.getCache('products') || {};
-    const lowStock = Object.values(prodsObj).filter(p => (parseFloat(p.stock_quantity) || 0) <= (parseFloat(p.min_alert_quantity) || 5)).length;
+    let prodsObj = this.getCache('products') || {};
+    let prodsList = Object.values(prodsObj);
+    if (bId && bId !== 'all') {
+      prodsList = prodsList.filter(p => p.branch_id === bId || (!p.branch_id && bId === 'branch-main'));
+    }
+    const lowStock = prodsList.filter(p => (parseFloat(p.stock_quantity) || 0) <= (parseFloat(p.min_alert_quantity) || 5)).length;
+
+    // Active workers on duty today
+    const shiftsObj = this.getCache('work_shifts') || {};
+    let activeShifts = Object.values(shiftsObj).filter(s => s.work_date === today && !s.clock_out);
+    if (bId && bId !== 'all') {
+      activeShifts = activeShifts.filter(s => s.branch_id === bId || (!s.branch_id && bId === 'branch-main'));
+    }
 
     const cash = parseFloat(cap.cash_balance || 0);
     const bank = parseFloat(cap.bank_balance || 0);
@@ -1234,7 +1451,8 @@ const FirebaseAdapter = {
       net_today: todaySales - todayExpTotal,
       debtors_total: debtors,
       low_stock_count: lowStock,
-      active_workers_count: 0
+      active_workers_count: activeShifts.length,
+      current_branch: bId || 'all'
     };
 
     return {

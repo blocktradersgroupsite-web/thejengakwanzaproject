@@ -183,16 +183,23 @@
             <span>Company Profile</span>
           </div>
         </a>
+
+        <a class="nav-item admin-only" data-route="branches" onclick="App.navigate('branches')">
+          <div class="nav-item-left">
+            <svg fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"></path></svg>
+            <span>Shops & Branches</span>
+          </div>
+        </a>
       </nav>
 
       <div class="sidebar-footer">
-        <div class="user-profile-badge">
+        <div class="user-profile-badge" onclick="App.showMyProfileModal()" style="cursor: pointer;" title="View & Edit My Profile">
           <div class="user-avatar" id="sidebar-user-avatar">A</div>
           <div class="user-info">
             <div class="user-name" id="sidebar-user-name">Administrator</div>
             <div class="user-role" id="sidebar-user-role">Admin Profile</div>
           </div>
-          <button style="background: none; border: none; color: #94a3b8; cursor: pointer; padding: 4px;" title="Logout" onclick="App.handleLogout()">
+          <button style="background: none; border: none; color: #94a3b8; cursor: pointer; padding: 4px;" title="Logout" onclick="event.stopPropagation(); App.handleLogout();">
             <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"></path></svg>
           </button>
         </div>
@@ -209,6 +216,16 @@
         </div>
 
         <div class="header-actions">
+          <!-- Active Shop / Branch Switcher -->
+          <div class="branch-selector-pill" id="header-branch-pill">
+            <span style="font-size: 13px;">🏪</span>
+            <select id="header-branch-select" class="branch-select-input" onchange="App.onBranchChange(this.value)" title="Switch active shop branch to filter all records and calculations">
+              <option value="all">All Branches (Consolidated)</option>
+              <option value="branch-main">Main Shop - Arusha</option>
+            </select>
+            <button class="btn btn-sm btn-outline admin-only" title="Add / Manage Shops & Branches" onclick="App.showManageBranchesModal()" style="font-size: 11px; padding: 3px 8px; border-radius: 12px;">+ Branch</button>
+          </div>
+
           <div id="connection-status-pill" class="connection-status-pill online" title="Click to sync data with cloud" onclick="App.triggerManualSync()">
             <span class="status-dot active" id="connection-dot"></span>
             <span id="connection-text">Cloud Synced</span>
@@ -218,6 +235,12 @@
             <span class="status-dot inactive" id="header-shift-dot"></span>
             <span id="header-shift-text">Checking Shift...</span>
             <button class="btn btn-sm btn-success" id="header-shift-btn" onclick="App.showClockInModal()">Clock In</button>
+          </div>
+
+          <!-- User Profile Pill -->
+          <div class="user-profile-pill" id="header-user-profile-btn" onclick="App.showMyProfileModal()" title="View and update my personal info, NIDA, and photo">
+            <div id="header-user-avatar" class="user-avatar-mini">A</div>
+            <span id="header-user-name" style="font-size: 12px; font-weight: 600; color: var(--text-main);">Staff</span>
           </div>
         </div>
       </header>
