@@ -747,12 +747,314 @@ const Printer = {
     `;
   },
 
+  // Generate complete, standalone CSS for high-fidelity printing (PDF / Paper / Thermal)
+  getPrintCss(isA4) {
+    return `
+      * {
+        box-sizing: border-box;
+        -webkit-print-color-adjust: exact !important;
+        print-color-adjust: exact !important;
+      }
+      html, body {
+        background: #ffffff !important;
+        color: #000000 !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      }
+      .badge {
+        display: inline-block;
+        padding: 2px 7px;
+        border-radius: 4px;
+        font-size: 8.5px;
+        font-weight: 700;
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+      }
+      .badge-success { background: #dcfce7 !important; color: #15803d !important; border: 1px solid #86efac !important; }
+      .badge-danger { background: #fee2e2 !important; color: #b91c1c !important; border: 1px solid #fca5a5 !important; }
+      .badge-warning { background: #fef3c7 !important; color: #b45309 !important; border: 1px solid #fde68a !important; }
+      .badge-neutral { background: #f1f5f9 !important; color: #475569 !important; border: 1px solid #cbd5e1 !important; }
+
+      /* A4 DOCUMENT STYLES (Invoices, Proformas, Delivery Notes, POs, Reports) */
+      .doc-a4-sheet {
+        width: 100% !important;
+        max-width: 100% !important;
+        box-sizing: border-box !important;
+        background: #ffffff !important;
+        color: #0f172a !important;
+        padding: 2mm 3mm !important;
+        margin: 0 auto !important;
+        font-size: 9.5px !important;
+        line-height: 1.25 !important;
+        display: flex !important;
+        flex-direction: column !important;
+        justify-content: flex-start !important;
+      }
+      .doc-header {
+        display: flex !important;
+        justify-content: space-between !important;
+        align-items: flex-start !important;
+        border-bottom: 2px solid #0d9488 !important;
+        padding-bottom: 6px !important;
+        margin-bottom: 6px !important;
+      }
+      .doc-brand-block {
+        display: flex !important;
+        align-items: center !important;
+        gap: 8px !important;
+      }
+      .doc-brand-logo {
+        height: 42px !important;
+        width: auto !important;
+        max-width: 90px !important;
+        object-fit: contain !important;
+      }
+      .doc-company-title {
+        font-size: 14px !important;
+        font-weight: 900 !important;
+        color: #000000 !important;
+        margin: 0 0 1px 0 !important;
+      }
+      .doc-company-tagline {
+        font-size: 8.5px !important;
+        color: #0d9488 !important;
+        font-weight: 600 !important;
+        margin-bottom: 1px !important;
+      }
+      .doc-company-contact {
+        font-size: 8px !important;
+        color: #333333 !important;
+        line-height: 1.15 !important;
+      }
+      .doc-type-badge {
+        text-align: right !important;
+      }
+      .doc-type-badge h1 {
+        font-size: 15px !important;
+        font-weight: 800 !important;
+        color: #0f172a !important;
+        margin: 0 0 1px 0 !important;
+      }
+      .doc-meta-table {
+        margin-left: auto !important;
+        font-size: 8.5px !important;
+        border-collapse: collapse !important;
+      }
+      .doc-meta-table td {
+        padding: 1px 2px !important;
+        text-align: right !important;
+      }
+      .doc-billing-grid {
+        display: grid !important;
+        grid-template-columns: 1fr 1fr !important;
+        gap: 8px !important;
+        padding: 4px 8px !important;
+        background: #f8fafc !important;
+        border: 1px solid #cbd5e1 !important;
+        border-radius: 4px !important;
+        margin-bottom: 6px !important;
+        font-size: 8.5px !important;
+      }
+      .doc-billing-grid h4 {
+        margin: 0 0 1px 0 !important;
+        font-size: 8.5px !important;
+        text-transform: uppercase !important;
+        color: #64748b !important;
+        font-weight: 700 !important;
+      }
+      .doc-client-name {
+        font-size: 11px !important;
+        font-weight: bold !important;
+        color: #0f172a !important;
+      }
+      .doc-table {
+        width: 100% !important;
+        border-collapse: collapse !important;
+        margin-bottom: 6px !important;
+      }
+      .doc-table th {
+        background: #0f172a !important;
+        color: #ffffff !important;
+        font-weight: 700 !important;
+        text-align: left !important;
+        padding: 3px 5px !important;
+        font-size: 8.5px !important;
+        text-transform: uppercase !important;
+      }
+      .doc-table td {
+        padding: 3px 5px !important;
+        font-size: 8.5px !important;
+        border-bottom: 1px solid #e2e8f0 !important;
+        line-height: 1.2 !important;
+      }
+      .doc-item-title {
+        font-size: 8.5px !important;
+        font-weight: 600 !important;
+        color: #0f172a !important;
+      }
+      .doc-summary-split {
+        display: grid !important;
+        grid-template-columns: 1.3fr 1fr !important;
+        gap: 8px !important;
+        margin-top: 4px !important;
+      }
+      .doc-terms-box, .doc-info-box {
+        background: #f8fafc !important;
+        border: 1px solid #cbd5e1 !important;
+        border-radius: 4px !important;
+        padding: 4px 6px !important;
+        font-size: 8px !important;
+        line-height: 1.2 !important;
+      }
+      .doc-terms-box strong, .doc-info-box strong {
+        display: block !important;
+        margin-bottom: 2px !important;
+        color: #0f172a !important;
+      }
+      .doc-terms-box p, .doc-info-box p {
+        margin: 0 !important;
+        color: #475569 !important;
+      }
+      .doc-totals-box {
+        background: #f8fafc !important;
+        border: 1px solid #cbd5e1 !important;
+        border-radius: 4px !important;
+        padding: 4px 6px !important;
+        font-size: 8.5px !important;
+      }
+      .doc-totals-box .row {
+        display: flex !important;
+        justify-content: space-between !important;
+        margin-bottom: 2px !important;
+      }
+      .doc-totals-box .grand-total {
+        border-top: 1.5px solid #000000 !important;
+        padding-top: 3px !important;
+        margin-top: 3px !important;
+        font-size: 11px !important;
+        font-weight: bold !important;
+        color: #0f172a !important;
+      }
+      .doc-signature-block {
+        display: grid !important;
+        grid-template-columns: 1fr 1fr !important;
+        gap: 20px !important;
+        margin-top: auto !important;
+        padding-top: 6px !important;
+        border-top: 1px dashed #94a3b8 !important;
+      }
+      .signature-line {
+        border-top: 1px solid #000000 !important;
+        padding-top: 2px !important;
+        font-size: 8px !important;
+        line-height: 1.2 !important;
+      }
+
+      /* THERMAL RECEIPT STYLES (80mm) */
+      .receipt-paper-80mm {
+        width: 74mm !important;
+        max-width: 74mm !important;
+        margin: 0 auto !important;
+        padding: 2mm 1mm !important;
+        font-size: 11px !important;
+        line-height: 1.35 !important;
+        color: #000000 !important;
+        background: #ffffff !important;
+      }
+      .receipt-header {
+        text-align: center !important;
+        margin-bottom: 8px !important;
+      }
+      .receipt-logo {
+        height: 40px !important;
+        width: auto !important;
+        max-width: 110px !important;
+        object-fit: contain !important;
+        margin-bottom: 4px !important;
+        filter: grayscale(100%) contrast(130%) !important;
+      }
+      .receipt-title {
+        font-size: 15px !important;
+        font-weight: 900 !important;
+        text-transform: uppercase !important;
+        margin: 0 !important;
+      }
+      .receipt-tagline {
+        font-size: 9.5px !important;
+        font-style: italic !important;
+        margin: 2px 0 !important;
+      }
+      .receipt-contacts {
+        font-size: 9px !important;
+        line-height: 1.3 !important;
+        color: #222222 !important;
+      }
+      .receipt-divider {
+        border-top: 1px dashed #000000 !important;
+        margin: 6px 0 !important;
+      }
+      .receipt-meta {
+        font-size: 10px !important;
+        line-height: 1.35 !important;
+      }
+      .receipt-table {
+        width: 100% !important;
+        border-collapse: collapse !important;
+      }
+      .receipt-table th {
+        font-size: 10px !important;
+        border-bottom: 1px dashed #000000 !important;
+        padding: 3px 0 !important;
+      }
+      .receipt-table td {
+        font-size: 10.5px !important;
+        padding: 3px 0 !important;
+      }
+      .receipt-totals {
+        font-size: 10.5px !important;
+        margin-top: 4px !important;
+      }
+      .receipt-totals .row {
+        display: flex !important;
+        justify-content: space-between !important;
+        margin-bottom: 2px !important;
+      }
+      .receipt-totals .grand-total {
+        font-size: 13.5px !important;
+        font-weight: 900 !important;
+        border-top: 1px dashed #000000 !important;
+        border-bottom: 1px dashed #000000 !important;
+        padding: 4px 0 !important;
+        margin: 4px 0 !important;
+      }
+      .receipt-footer {
+        text-align: center !important;
+        font-size: 9px !important;
+        margin-top: 8px !important;
+        padding-top: 6px !important;
+        border-top: 1px dashed #000000 !important;
+        line-height: 1.35 !important;
+      }
+    `;
+  },
+
   // Modal Print Preview Display & Print Trigger
   showPrintPreview(htmlContent, title = 'Document Preview') {
     const isA4 = htmlContent.includes('doc-a4-sheet');
     document.body.setAttribute('data-print-mode', isA4 ? 'a4' : 'receipt');
     document.body.classList.toggle('printing-a4', isA4);
     document.body.classList.toggle('printing-receipt', !isA4);
+
+    // Sync clean document to the dedicated body-level print mount point
+    let mountPoint = document.getElementById('print-mount-point');
+    if (!mountPoint) {
+      mountPoint = document.createElement('div');
+      mountPoint.id = 'print-mount-point';
+      mountPoint.className = 'no-screen';
+      document.body.appendChild(mountPoint);
+    }
+    mountPoint.innerHTML = htmlContent;
 
     let previewModal = document.getElementById('print-preview-modal');
     if (!previewModal) {
@@ -768,13 +1070,13 @@ const Printer = {
           <div class="modal-body" style="background: #f1f5f9; display: flex; justify-content: center; padding: 16px; overflow-y: auto;">
             <div id="print-preview-content"></div>
           </div>
-          <div class="modal-footer" style="display: flex; justify-content: space-between; align-items: center;">
+          <div class="modal-footer" style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 8px;">
             <div style="font-size: 12px; color: #475569;" id="print-paper-indicator">
               ${isA4 ? '📄 Formatted to fit on 1 A4 Page' : '🧾 Thermal Receipt Format (80mm)'}
             </div>
             <div style="display: flex; gap: 8px;">
               <button class="btn btn-secondary" onclick="Printer.closePrintPreview()">Close</button>
-              <button class="btn btn-primary" onclick="window.print()">
+              <button class="btn btn-primary" onclick="Printer.triggerPrint()">
                 <svg width="18" height="18" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"></path></svg>
                 Print Document
               </button>
@@ -793,6 +1095,76 @@ const Printer = {
     document.getElementById('print-modal-title').textContent = title;
     document.getElementById('print-preview-content').innerHTML = htmlContent;
     previewModal.classList.add('active');
+  },
+
+  // Trigger high-fidelity vector printing without any modal/dialog screenshot artifacts
+  triggerPrint() {
+    const previewContent = document.getElementById('print-preview-content');
+    const html = previewContent ? previewContent.innerHTML : '';
+    if (!html) {
+      window.print();
+      return;
+    }
+    const isA4 = html.includes('doc-a4-sheet');
+
+    // Make sure body mount point has exact document HTML for native print fallback
+    const mountPoint = document.getElementById('print-mount-point');
+    if (mountPoint) mountPoint.innerHTML = html;
+
+    // Use an invisible, unstyled iframe to guarantee 100% pure document print
+    let printFrame = document.getElementById('jk-print-frame');
+    if (printFrame) {
+      try { printFrame.remove(); } catch (e) {}
+    }
+    printFrame = document.createElement('iframe');
+    printFrame.id = 'jk-print-frame';
+    printFrame.style.position = 'fixed';
+    printFrame.style.right = '0';
+    printFrame.style.bottom = '0';
+    printFrame.style.width = '0';
+    printFrame.style.height = '0';
+    printFrame.style.border = '0';
+    printFrame.style.visibility = 'hidden';
+    printFrame.style.zIndex = '-999';
+    document.body.appendChild(printFrame);
+
+    try {
+      const frameDoc = printFrame.contentWindow.document;
+      frameDoc.open();
+      frameDoc.write(`
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <title>${document.getElementById('print-modal-title')?.textContent || 'Document'}</title>
+          <style>
+            @page {
+              size: ${isA4 ? 'A4 portrait' : '80mm auto'};
+              margin: ${isA4 ? '4mm 5mm' : '0mm'};
+            }
+            ${Printer.getPrintCss(isA4)}
+          </style>
+        </head>
+        <body>
+          ${html}
+        </body>
+        </html>
+      `);
+      frameDoc.close();
+
+      setTimeout(() => {
+        try {
+          printFrame.contentWindow.focus();
+          printFrame.contentWindow.print();
+        } catch (err) {
+          console.warn('Iframe print failed, executing direct print:', err);
+          window.print();
+        }
+      }, 350);
+    } catch (err) {
+      console.warn('Iframe print init failed, falling back to window.print():', err);
+      window.print();
+    }
   },
 
   closePrintPreview() {

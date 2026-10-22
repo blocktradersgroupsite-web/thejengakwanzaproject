@@ -2601,7 +2601,7 @@ const App = {
               <button class="btn btn-secondary" onclick="App.showCapitalAdjustModal('OWNER_DRAWING')">
                 - Owner Drawing
               </button>
-              <button class="btn btn-danger" onclick="App.resetCapitalAction()" title="Reset all capital records to 0 and start afresh">
+              <button class="btn btn-danger" onclick="App.showResetCapitalModal()" title="Reset all capital records to 0 and start afresh">
                 🔄 Reset & Start Afresh
               </button>
             </div>
@@ -4740,20 +4740,73 @@ Corrugated Iron Sheets Gauge 28,Roofing,SHT-G28,012345678905,31000,38000,80,shee
     }
   },
 
-  async resetCapitalAction() {
+  showResetCapitalModal() {
     if (!State.isAdmin()) {
       State.showToast('Access restricted: Only administrators can reset capital records', 'error');
       return;
     }
-    if (!confirm('Are you sure you want to remove all existing capital and start afresh? This will set cash, bank, and mobile balances to zero and clear the capital ledger.')) {
-      return;
-    }
+    const modal = document.getElementById('general-modal');
+    document.getElementById('general-modal-title').textContent = '🔄 Reset Business Capital & Start Afresh';
+    document.getElementById('general-modal-body').innerHTML = `
+      <div style="padding: 6px 0;">
+        <div style="background: #fef2f2; border-left: 4px solid #ef4444; padding: 12px 14px; border-radius: 6px; margin-bottom: 16px;">
+          <div style="font-weight: 700; color: #991b1b; font-size: 14px; margin-bottom: 4px;">⚠️ Start Fresh Capital Setup</div>
+          <div style="font-size: 13px; color: #7f1d1d; line-height: 1.4;">
+            This action wipes previous capital ledger records and sets your liquid funds (cash, bank, and mobile float) to <strong>TSh 0</strong> so you can start completely fresh.
+          </div>
+        </div>
+
+        <div style="margin-bottom: 18px;">
+          <label style="font-weight: 700; font-size: 13px; display: block; margin-bottom: 8px; color: var(--text-main);">Choose Reset Scope:</label>
+          
+          <label style="display: flex; align-items: flex-start; gap: 10px; padding: 12px; border: 1.5px solid #cbd5e1; border-radius: 8px; margin-bottom: 10px; cursor: pointer; background: #ffffff;">
+            <input type="radio" name="jk_reset_scope" value="liquid_only" checked style="margin-top: 3px;">
+            <div>
+              <div style="font-weight: 700; color: #0f172a; font-size: 13.5px;">Option 1: Reset Liquid Funds & Ledger Only</div>
+              <div style="font-size: 12px; color: #64748b; margin-top: 2px;">
+                Sets Cash, Bank balance, and Mobile money to <strong>TSh 0</strong>, and clears all capital injection/drawing records. <em>Product stock quantities remain intact.</em>
+              </div>
+            </div>
+          </label>
+
+          <label style="display: flex; align-items: flex-start; gap: 10px; padding: 12px; border: 1.5px solid #fca5a5; border-radius: 8px; cursor: pointer; background: #fff5f5;">
+            <input type="radio" name="jk_reset_scope" value="all" style="margin-top: 3px;">
+            <div>
+              <div style="font-weight: 700; color: #991b1b; font-size: 13.5px;">Option 2: 100% Total Reset (Liquid + Stock Valuation = TSh 0)</div>
+              <div style="font-size: 12px; color: #7f1d1d; margin-top: 2px;">
+                Sets Liquid balances to <strong>TSh 0</strong>, clears ledger, AND resets all product stock quantities to <strong>0</strong>. Total Business Capital on the dashboard will start at <strong>TSh 0.00</strong>!
+              </div>
+            </div>
+          </label>
+        </div>
+
+        <div style="display: flex; justify-content: flex-end; gap: 10px; margin-top: 20px;">
+          <button class="btn btn-secondary" onclick="App.closeGeneralModal()">Cancel</button>
+          <button class="btn btn-danger" onclick="App.confirmResetCapital()">
+            Confirm & Wipe to 0
+          </button>
+        </div>
+      </div>
+    `;
+    modal.classList.add('active');
+  },
+
+  async confirmResetCapital() {
+    const scopeRadio = document.querySelector('input[name="jk_reset_scope"]:checked');
+    const resetStock = scopeRadio && scopeRadio.value === 'all';
+    
     try {
-      const res = await API.resetCapital();
+      State.showToast('Resetting capital records...', 'info');
+      const res = await API.resetCapital({ resetStock });
       if (res && res.success) {
-        State.showToast('Capital records cleared! Starting afresh at zero.', 'success');
+        this.closeGeneralModal();
+        State.showToast(resetStock 
+          ? 'Total Capital and product stock quantities reset to 0! Starting completely fresh.' 
+          : 'Liquid balances and capital ledger reset to 0!', 'success');
         if (State.currentRoute === 'capital') {
           this.renderCapital(document.getElementById('content-area'));
+        } else if (State.currentRoute === 'products') {
+          this.renderProducts(document.getElementById('content-area'));
         } else {
           this.renderDashboard(document.getElementById('content-area'));
         }
@@ -4761,6 +4814,10 @@ Corrugated Iron Sheets Gauge 28,Roofing,SHT-G28,012345678905,31000,38000,80,shee
     } catch (err) {
       State.showToast(err.message || 'Error resetting capital', 'error');
     }
+  },
+
+  async resetCapitalAction() {
+    this.showResetCapitalModal();
   },
 
   // -------------------------------------------------------------

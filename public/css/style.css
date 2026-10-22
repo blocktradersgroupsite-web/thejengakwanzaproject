@@ -2431,13 +2431,17 @@ body {
   }
 }
 
+#print-mount-point, .no-screen {
+  display: none !important;
+}
+
 /* ------------------------------------------------------------- */
 /* PRINT MEDIA QUERY FOR PHYSICAL PRINTERS & PDF                 */
 /* ------------------------------------------------------------- */
 @media print {
   @page {
     size: A4 portrait;
-    margin: 5mm 6mm;
+    margin: 4mm 5mm;
   }
 
   html, body {
@@ -2445,69 +2449,75 @@ body {
     color: #000000 !important;
     margin: 0 !important;
     padding: 0 !important;
-    height: 100% !important;
-    max-height: 100% !important;
-    overflow: hidden !important;
+    height: auto !important;
+    max-height: none !important;
+    overflow: visible !important;
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
   }
 
-  #app-layout, #sidebar, #top-header, #auth-page, #toast-container,
-  .modal-overlay:not(#print-preview-modal),
-  #print-preview-modal .modal-header,
-  #print-preview-modal .modal-footer,
-  .btn, .no-print {
+  /* Completely suppress all screen chrome, layout, headers, navigation, sidebars, and modals */
+  #app-layout,
+  #top-header,
+  #sidebar,
+  .modal-overlay,
+  #print-preview-modal,
+  .modal-box,
+  .modal-header,
+  .modal-footer,
+  .btn,
+  .no-print,
+  #toast-container,
+  #offline-banner {
     display: none !important;
-  }
-
-  #print-preview-modal {
-    position: absolute !important;
-    left: 0 !important;
-    top: 0 !important;
-    width: 100% !important;
-    height: 100% !important;
-    max-height: 100% !important;
-    background: transparent !important;
-    padding: 0 !important;
-    margin: 0 !important;
-    box-shadow: none !important;
+    visibility: hidden !important;
+    opacity: 0 !important;
+    height: 0 !important;
+    width: 0 !important;
     overflow: hidden !important;
   }
 
-  #print-preview-modal .modal-box {
-    box-shadow: none !important;
-    border: none !important;
-    max-width: 100% !important;
-    width: 100% !important;
-    height: 100% !important;
-    max-height: 100% !important;
-    margin: 0 !important;
-    padding: 0 !important;
-    background: transparent !important;
-  }
-
-  #print-preview-modal .modal-body {
-    background: transparent !important;
-    padding: 0 !important;
-    margin: 0 !important;
+  /* The dedicated mount point is the only element printed */
+  #print-mount-point {
     display: block !important;
-    overflow: hidden !important;
+    visibility: visible !important;
+    opacity: 1 !important;
+    position: static !important;
+    width: 100% !important;
+    margin: 0 !important;
+    padding: 0 !important;
+    background: #ffffff !important;
   }
 
-  #print-preview-content {
-    display: block !important;
-    padding: 0 !important;
-    margin: 0 !important;
-    overflow: hidden !important;
+  #print-mount-point * {
+    visibility: visible !important;
   }
 
   /* ----------------------------------------------------------- */
   /* A4 DOCUMENT FORMAT: RIGID 1-PAGE A4 GUARANTEE               */
   /* ----------------------------------------------------------- */
-  .doc-a4-sheet {
+  .doc-a4-sheet,
+  #print-mount-point .doc-a4-sheet {
     width: 100% !important;
     max-width: 100% !important;
-    height: 100% !important;
+    box-sizing: border-box !important;
+    padding: 2mm 3mm !important;
+    margin: 0 auto !important;
+    box-shadow: none !important;
+    border: none !important;
+    font-size: 9.5px !important;
+    line-height: 1.25 !important;
+    display: flex !important;
+    flex-direction: column !important;
+    justify-content: flex-start !important;
+    page-break-inside: avoid !important;
+    break-inside: avoid !important;
+    page-break-before: avoid !important;
+    break-before: avoid !important;
+    page-break-after: avoid !important;
+    break-after: avoid !important;
+    overflow: hidden !important;
+  }
     max-height: 284mm !important;
     box-sizing: border-box !important;
     padding: 2mm 3mm !important;

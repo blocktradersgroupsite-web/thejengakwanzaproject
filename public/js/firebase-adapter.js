@@ -123,7 +123,7 @@ const FirebaseAdapter = {
     }
 
     // Fresh Start Capital Migration: Reset all existing capital records to start afresh
-    const capitalResetDone = localStorage.getItem('jengakwanza_capital_reset_v20261022');
+    const capitalResetDone = localStorage.getItem('jengakwanza_capital_fresh_slate_v3');
     if (!capitalResetDone) {
       if (this.memoryCache.settings) {
         this.memoryCache.settings.cash_balance = 0.0;
@@ -133,12 +133,14 @@ const FirebaseAdapter = {
       }
       this.memoryCache.capital_ledger = {};
       this.setCache('capital_ledger', {});
-      localStorage.setItem('jengakwanza_capital_reset_v20261022', 'true');
+      localStorage.setItem('jengakwanza_capital_fresh_slate_v3', 'true');
       if (navigator.onLine) {
-        this.rtdb('capital_ledger', 'PUT', {}).catch(() => {});
-        this.rtdb('settings/cash_balance', 'PUT', 0.0).catch(() => {});
-        this.rtdb('settings/bank_balance', 'PUT', 0.0).catch(() => {});
-        this.rtdb('settings/mobile_money_balance', 'PUT', 0.0).catch(() => {});
+        this.rtdb('capital_ledger', 'DELETE').catch(() => {});
+        this.rtdb('settings', 'PATCH', {
+          cash_balance: 0.0,
+          bank_balance: 0.0,
+          mobile_money_balance: 0.0
+        }).catch(() => {});
       }
       console.log('🔄 Fresh start: Existing capital records cleared to 0');
     }
@@ -295,7 +297,15 @@ const FirebaseAdapter = {
     // Background refresh
     if (navigator.onLine) {
       this.rawFetch('settings', 'GET', null, 3000).then(s => {
-        if (s) this.setCache('settings', s);
+        if (s) {
+          const current = this.getCache('settings') || {};
+          const merged = { ...current, ...s };
+          // Guard against null/undefined reviving previous capital
+          if (merged.cash_balance === undefined || merged.cash_balance === null) merged.cash_balance = 0.0;
+          if (merged.bank_balance === undefined || merged.bank_balance === null) merged.bank_balance = 0.0;
+          if (merged.mobile_money_balance === undefined || merged.mobile_money_balance === null) merged.mobile_money_balance = 0.0;
+          this.setCache('settings', merged);
+        }
       }).catch(() => {});
     }
     return { success: true, settings: cached || {} };
@@ -1476,25 +1486,66 @@ const FirebaseAdapter = {
     return { success: true };
   },
 
-  async resetCapital() {
+  async resetCapital(options = {}) {
     const settings = this.getCache('settings') || {};
     settings.cash_balance = 0.0;
     settings.bank_balance = 0.0;
     settings.mobile_money_balance = 0.0;
     this.setCache('settings', settings);
+    this.memoryCache.settings = settings;
 
     this.setCache('capital_ledger', {});
     this.memoryCache.capital_ledger = {};
 
+    // Clear any pending offline queue mutations for capital/settings to prevent replaying old values
+    const queue = this.getOfflineQueue().filter(q => 
+      !q.path.startsWith('capital_ledger') &&
+      q.path !== 'settings/cash_balance' &&
+      q.path !== 'settings/bank_balance' &&
+      q.path !== 'settings/mobile_money_balance'
+    );
+    this.saveOfflineQueue(queue);
+
+    // If options.resetStock is requested, also zero out all product stock quantities
+    if (options && options.resetStock) {
+      const prods = this.getCache('products') || {};
+      Object.keys(prods).forEach(id => {
+        prods[id].stock_quantity = 0;
+      });
+      this.setCache('products', prods);
+      this.memoryCache.products = prods;
+      if (navigator.onLine) {
+        this.rtdb('products', 'PUT', prods).catch(() => {});
+      }
+    }
+
     try {
-      await Promise.all([
-        this.rtdb('capital_ledger', 'PUT', {}),
-        this.rtdb('settings/cash_balance', 'PUT', 0.0),
-        this.rtdb('settings/bank_balance', 'PUT', 0.0),
-        this.rtdb('settings/mobile_money_balance', 'PUT', 0.0)
-      ]);
+      if (navigator.onLine) {
+        await Promise.all([
+          this.rtdb('capital_ledger', 'DELETE'),
+          this.rtdb('settings', 'PATCH', {
+            cash_balance: 0.0,
+            bank_balance: 0.0,
+            mobile_money_balance: 0.0
+          })
+        ]);
+        console.log('✓ Capital balances & ledger reset in Firebase Cloud RTDB');
+      } else {
+        this.queueMutation('capital_ledger', 'DELETE', null, 'Wipe capital ledger');
+        this.queueMutation('settings', 'PATCH', {
+          cash_balance: 0.0,
+          bank_balance: 0.0,
+          mobile_money_balance: 0.0
+        }, 'Reset liquid balances');
+      }
     } catch (e) {
-      console.warn('Network sync for resetCapital deferred:', e);
+      console.warn('Network sync for resetCapital deferred to queue:', e);
+      this.queueMutation('capital_ledger', 'DELETE', null, 'Wipe capital ledger');
+      this.queueMutation('settings', 'PATCH', {
+        cash_balance: 0.0,
+        bank_balance: 0.0,
+        mobile_money_balance: 0.0
+      }, 'Reset liquid balances');
     }
     return { success: true };
   },
