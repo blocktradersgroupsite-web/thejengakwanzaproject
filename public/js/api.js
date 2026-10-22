@@ -448,6 +448,11 @@ const API = {
     return this.request(`capital/adjust/${id}`, { method: 'DELETE' });
   },
 
+  async resetCapital() {
+    if (await this.checkFirebaseInit()) return FirebaseAdapter.resetCapital();
+    return this.request('capital/reset', { method: 'POST' });
+  },
+
   // Reports
   async getDashboardReport(branchId) {
     if (await this.checkFirebaseInit()) return FirebaseAdapter.getDashboardReport(branchId);

@@ -2594,12 +2594,15 @@ const App = {
                 Available Stock at Cost: <strong>${State.formatMoney(cap.stock_cost_valuation)}</strong> | Liquid Cash/Bank: <strong>${State.formatMoney(cap.total_liquid)}</strong> | Debtors: <strong>${State.formatMoney(cap.debtors_total)}</strong>
               </div>
             </div>
-            <div style="display: flex; gap: 10px;">
+            <div style="display: flex; gap: 8px; flex-wrap: wrap;">
               <button class="btn btn-primary" onclick="App.showCapitalAdjustModal('CAPITAL_INJECTION')">
                 + Add Capital / Money In
               </button>
               <button class="btn btn-secondary" onclick="App.showCapitalAdjustModal('OWNER_DRAWING')">
-                - Owner Drawing / Withdrawal
+                - Owner Drawing
+              </button>
+              <button class="btn btn-danger" onclick="App.resetCapitalAction()" title="Reset all capital records to 0 and start afresh">
+                🔄 Reset & Start Afresh
               </button>
             </div>
           </div>
@@ -4734,6 +4737,29 @@ Corrugated Iron Sheets Gauge 28,Roofing,SHT-G28,012345678905,31000,38000,80,shee
       }
     } catch (err) {
       State.showToast(err.message || 'Failed to delete capital entry', 'error');
+    }
+  },
+
+  async resetCapitalAction() {
+    if (!State.isAdmin()) {
+      State.showToast('Access restricted: Only administrators can reset capital records', 'error');
+      return;
+    }
+    if (!confirm('Are you sure you want to remove all existing capital and start afresh? This will set cash, bank, and mobile balances to zero and clear the capital ledger.')) {
+      return;
+    }
+    try {
+      const res = await API.resetCapital();
+      if (res && res.success) {
+        State.showToast('Capital records cleared! Starting afresh at zero.', 'success');
+        if (State.currentRoute === 'capital') {
+          this.renderCapital(document.getElementById('content-area'));
+        } else {
+          this.renderDashboard(document.getElementById('content-area'));
+        }
+      }
+    } catch (err) {
+      State.showToast(err.message || 'Error resetting capital', 'error');
     }
   },
 

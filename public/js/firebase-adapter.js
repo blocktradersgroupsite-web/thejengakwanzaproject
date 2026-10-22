@@ -121,6 +121,27 @@ const FirebaseAdapter = {
       this.memoryCache.users = { 'admin': defaultAdmin };
       this.setCache('users', this.memoryCache.users);
     }
+
+    // Fresh Start Capital Migration: Reset all existing capital records to start afresh
+    const capitalResetDone = localStorage.getItem('jengakwanza_capital_reset_v20261022');
+    if (!capitalResetDone) {
+      if (this.memoryCache.settings) {
+        this.memoryCache.settings.cash_balance = 0.0;
+        this.memoryCache.settings.bank_balance = 0.0;
+        this.memoryCache.settings.mobile_money_balance = 0.0;
+        this.setCache('settings', this.memoryCache.settings);
+      }
+      this.memoryCache.capital_ledger = {};
+      this.setCache('capital_ledger', {});
+      localStorage.setItem('jengakwanza_capital_reset_v20261022', 'true');
+      if (navigator.onLine) {
+        this.rtdb('capital_ledger', 'PUT', {}).catch(() => {});
+        this.rtdb('settings/cash_balance', 'PUT', 0.0).catch(() => {});
+        this.rtdb('settings/bank_balance', 'PUT', 0.0).catch(() => {});
+        this.rtdb('settings/mobile_money_balance', 'PUT', 0.0).catch(() => {});
+      }
+      console.log('🔄 Fresh start: Existing capital records cleared to 0');
+    }
   },
 
   getCache(collection) {
@@ -1451,6 +1472,29 @@ const FirebaseAdapter = {
       this.setCache('capital_ledger', ledgers);
       await this.rtdb(`capital_ledger/${id}`, 'DELETE');
       await this.rtdb('settings', 'PATCH', { cash_balance: settings.cash_balance });
+    }
+    return { success: true };
+  },
+
+  async resetCapital() {
+    const settings = this.getCache('settings') || {};
+    settings.cash_balance = 0.0;
+    settings.bank_balance = 0.0;
+    settings.mobile_money_balance = 0.0;
+    this.setCache('settings', settings);
+
+    this.setCache('capital_ledger', {});
+    this.memoryCache.capital_ledger = {};
+
+    try {
+      await Promise.all([
+        this.rtdb('capital_ledger', 'PUT', {}),
+        this.rtdb('settings/cash_balance', 'PUT', 0.0),
+        this.rtdb('settings/bank_balance', 'PUT', 0.0),
+        this.rtdb('settings/mobile_money_balance', 'PUT', 0.0)
+      ]);
+    } catch (e) {
+      console.warn('Network sync for resetCapital deferred:', e);
     }
     return { success: true };
   },
